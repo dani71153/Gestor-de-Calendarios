@@ -1,0 +1,660 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#202827">
+  <meta name="description" content="Agenda operativa central para coordinar calendarios, responsables y fechas críticas.">
+  <title>Gestor Central de Calendarios</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/theme.css">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Saltar al contenido</a>
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="icon-overview" viewBox="0 0 24 24"><path d="M4 4h6v7H4zM14 4h6v4h-6zM14 12h6v8h-6zM4 15h6v5H4z"/></symbol>
+    <symbol id="icon-calendar" viewBox="0 0 24 24"><path d="M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2ZM3 9h18M8 2v4M16 2v4"/></symbol>
+    <symbol id="icon-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h1M4 12h1M4 18h1"/></symbol>
+    <symbol id="icon-settings" viewBox="0 0 24 24"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="m19 13.5 1.5 1-2 3.5-1.7-.8a8 8 0 0 1-2.3 1.3l-.2 1.9h-4l-.2-1.9a8 8 0 0 1-2.3-1.3L6 18l-2-3.5 1.5-1a8 8 0 0 1 0-3L4 9.5 6 6l1.8.8a8 8 0 0 1 2.3-1.3l.2-1.9h4l.2 1.9a8 8 0 0 1 2.3 1.3L18.5 6l2 3.5-1.5 1a8 8 0 0 1 0 3Z"/></symbol>
+    <symbol id="icon-users" viewBox="0 0 24 24"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM3 21v-3a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v3M16 4a4 4 0 0 1 0 7M17 13a5 5 0 0 1 4 5v3"/></symbol>
+    <symbol id="icon-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="icon-exit" viewBox="0 0 24 24"><path d="M14 5h6v14h-6M10 8l-4 4 4 4M6 12h10"/></symbol>
+    <symbol id="icon-left" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></symbol>
+    <symbol id="icon-right" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="icon-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="icon-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM9.5 21h5"/></symbol>
+  </svg>
+  <section id="login-screen" class="login-screen">
+    <div class="login-brand">
+      <div class="brand-mark">GC</div>
+      <p class="eyebrow">Operaciones conectadas</p>
+      <h1>El tiempo de tu empresa, en un solo lugar.</h1>
+      <p>Coordina equipos, responsables y fechas críticas desde una vista central.</p>
+    </div>
+    <form id="login-form" class="login-card">
+      <div>
+        <p class="eyebrow">Bienvenido</p>
+        <h2>Inicia sesión</h2>
+        <p class="muted">Usa la cuenta de demostración para explorar el MVP.</p>
+      </div>
+      <label>Correo
+        <input name="email" type="email" value="admin@empresa.com" required>
+      </label>
+      <label>Contraseña
+        <input name="password" type="password" value="Demo123!" required>
+      </label>
+      <p id="login-error" class="form-error" hidden></p>
+      <button class="button primary full" type="submit">Entrar al gestor</button>
+      <p class="demo-note">Demo: admin@empresa.com · Demo123!</p>
+    </form>
+  </section>
+
+  <div id="app" class="app-shell" hidden>
+    <aside class="sidebar">
+      <a class="logo" href="/" aria-label="Ir al resumen">
+        <span class="brand-mark small">GC</span>
+        <span>Gestor<br><strong>Central</strong></span>
+      </a>
+      <nav>
+        <button class="nav-item active" data-view="dashboard" title="Resumen"><svg><use href="#icon-overview"></use></svg><span>Resumen</span></button>
+        <button class="nav-item" data-view="calendar" title="Calendario"><svg><use href="#icon-calendar"></use></svg><span>Calendario</span></button>
+        <button class="nav-item" data-view="events" title="Eventos"><svg><use href="#icon-list"></use></svg><span>Eventos</span></button>
+        <button class="nav-item" data-view="reports" title="Reportes"><svg><use href="#icon-overview"></use></svg><span>Reportes</span></button>
+        <button class="nav-item admin-nav" data-view="admin" title="Administración" hidden><svg><use href="#icon-users"></use></svg><span>Administración</span></button>
+        <button class="nav-item settings-nav" data-view="settings" title="Configuración" hidden><svg><use href="#icon-settings"></use></svg><span>Configuración</span></button>
+        <button class="nav-item integration-nav" data-view="integrations" title="Configurar integraciones"><svg><use href="#icon-settings"></use></svg><span>Integraciones</span></button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="sync-status"><span></span> Sistema disponible</div>
+        <button id="logout-button" class="nav-item"><svg><use href="#icon-exit"></use></svg><span>Cerrar sesión</span></button>
+      </div>
+    </aside>
+
+    <main id="main-content">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow" id="today-label"></p>
+          <h1 id="page-title">Resumen ejecutivo</h1>
+        </div>
+        <div class="topbar-actions">
+          <div class="notification-anchor">
+            <button id="notification-button" class="icon-button notification-button" type="button" aria-label="Notificaciones" aria-expanded="false">
+              <svg><use href="#icon-bell"></use></svg><span id="notification-badge" class="notification-badge" hidden>0</span>
+            </button>
+            <aside id="notification-panel" class="notification-panel" hidden>
+              <div class="notification-heading">
+                <div><p class="eyebrow">Actividad</p><h3>Notificaciones</h3></div>
+                <div class="notification-heading-actions">
+                  <button id="read-all-notifications" class="text-button" type="button">Marcar leídas</button>
+                  <button id="clear-notifications" class="text-button danger-text" type="button" data-confirm="false">Limpiar</button>
+                </div>
+              </div>
+              <div id="notification-list" class="notification-list"></div>
+            </aside>
+          </div>
+          <div class="user-chip">
+            <span class="avatar" id="user-avatar">DA</span>
+            <span><strong id="user-name">Usuario</strong><small id="user-role">Rol</small></span>
+          </div>
+          <button class="button tertiary go-integrations"><svg><use href="#icon-settings"></use></svg>Integraciones</button>
+          <button class="button primary new-event"><svg><use href="#icon-plus"></use></svg>Nuevo evento</button>
+        </div>
+      </header>
+
+      <section id="dashboard-view" class="view">
+        <div class="hero-row">
+          <div>
+            <h2>Buenos días, <span id="first-name">Daniel</span></h2>
+            <p class="muted">Esto es lo que requiere atención en tu agenda.</p>
+          </div>
+          <div class="hero-actions">
+            <span class="last-update">Actualizado ahora</span>
+            <button class="button tertiary go-integrations">Configurar integraciones</button>
+          </div>
+        </div>
+        <div id="summary-cards" class="summary-grid is-loading" aria-live="polite" aria-busy="true"></div>
+        <div class="dashboard-grid">
+          <article class="panel schedule-panel">
+            <div class="panel-heading">
+              <div><p class="eyebrow">Agenda</p><h3>Próximos eventos</h3></div>
+              <button class="text-button" data-go-view="events">Ver todos →</button>
+            </div>
+            <div id="upcoming-list" class="upcoming-list"></div>
+          </article>
+          <article class="panel distribution-panel">
+            <div class="panel-heading">
+              <div><p class="eyebrow">Distribución</p><h3>Por calendario</h3></div>
+            </div>
+            <div id="calendar-distribution" class="distribution-list"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="calendar-view" class="view" hidden>
+        <div class="toolbar panel">
+          <div class="month-navigation">
+            <button id="prev-month" class="icon-button" aria-label="Mes anterior"><svg><use href="#icon-left"></use></svg></button>
+            <button id="today-button" class="button ghost">Hoy</button>
+            <button id="next-month" class="icon-button" aria-label="Mes siguiente"><svg><use href="#icon-right"></use></svg></button>
+            <h2 id="month-label"></h2>
+          </div>
+          <div class="calendar-toolbar-actions">
+            <div class="view-switcher" aria-label="Vista del calendario">
+              <button type="button" data-calendar-mode="month" class="active">Mes</button>
+              <button type="button" data-calendar-mode="week">Semana</button>
+              <button type="button" data-calendar-mode="day">Día</button>
+            </div>
+            <select id="calendar-filter"><option value="">Todos los calendarios</option></select>
+          </div>
+        </div>
+        <div class="calendar-wrap panel">
+          <div id="month-weekdays" class="weekdays"><span>Lun</span><span>Mar</span><span>Mié</span><span>Jue</span><span>Vie</span><span>Sáb</span><span>Dom</span></div>
+          <div id="calendar-grid" class="calendar-grid"></div>
+        </div>
+      </section>
+
+      <section id="events-view" class="view" hidden>
+        <div class="toolbar panel event-filters">
+          <div>
+            <p class="eyebrow">Registro operativo</p>
+            <h2>Todos los eventos</h2>
+            <p id="event-results" class="filter-results" aria-live="polite">Cargando eventos…</p>
+          </div>
+          <div class="filter-group">
+            <input id="event-search" type="search" placeholder="Buscar evento" aria-label="Buscar por título o descripción">
+            <select id="list-calendar-filter"><option value="">Todos los calendarios</option></select>
+            <select id="status-filter">
+              <option value="">Todos los estados</option>
+              <option value="draft">Borrador</option>
+              <option value="pending">Pendiente</option>
+              <option value="confirmed">Confirmado</option>
+              <option value="in_progress">En proceso</option>
+              <option value="completed">Completado</option>
+              <option value="canceled">Cancelado</option>
+              <option value="overdue">Vencido</option>
+            </select>
+            <select id="responsibility-filter">
+              <option value="">Todos los responsables</option>
+              <option value="mine">Mis eventos</option>
+              <option value="unassigned">Sin responsable</option>
+            </select>
+            <button id="reset-event-filters" class="button ghost" type="button" hidden>Limpiar</button>
+          </div>
+        </div>
+        <div id="active-filter-context" class="filter-context" role="status" hidden></div>
+        <div class="panel table-panel">
+          <table>
+            <thead><tr><th>Fecha</th><th>Evento</th><th>Calendario</th><th>Responsable</th><th>Estado</th><th>Prioridad</th><th>Google</th><th></th></tr></thead>
+            <tbody id="events-table"></tbody>
+          </table>
+          <div id="empty-events" class="empty-state" hidden>No hay eventos con estos filtros.</div>
+        </div>
+      </section>
+
+      <section id="reports-view" class="view" hidden>
+        <div class="hero-row report-hero">
+          <div><p class="eyebrow">Rendimiento operativo</p><h2>Cumplimiento y carga laboral</h2><p class="muted">Compara volumen, horas programadas y ejecución dentro de los calendarios que puedes consultar.</p></div>
+          <form id="report-filter" class="report-filter">
+            <label>Desde<input name="start" type="date" required></label>
+            <label>Hasta<input name="end" type="date" required></label>
+            <button class="button primary" type="submit">Actualizar</button>
+          </form>
+        </div>
+        <div id="report-summary" class="report-summary" aria-live="polite"></div>
+        <div class="report-grid">
+          <article class="panel report-panel">
+            <div class="panel-heading"><div><p class="eyebrow">Capacidad</p><h3>Carga por responsable</h3></div></div>
+            <div id="workload-report" class="report-list"></div>
+          </article>
+          <article class="panel report-panel">
+            <div class="panel-heading"><div><p class="eyebrow">Resultados</p><h3>Cumplimiento por calendario</h3></div></div>
+            <div id="compliance-report" class="report-list"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="admin-view" class="view" hidden>
+        <div class="hero-row">
+          <div>
+            <p class="eyebrow">Gobierno del sistema</p>
+            <h2>Administración</h2>
+            <p class="muted">Gestiona calendarios, accesos, usuarios y responsabilidades desde un único lugar.</p>
+          </div>
+          <div class="hero-actions">
+            <button id="new-admin-user" class="button ghost" type="button">Nuevo usuario</button>
+            <button id="new-admin-calendar" class="button primary" type="button">Nuevo calendario</button>
+          </div>
+        </div>
+        <div class="admin-grid">
+          <article class="panel admin-panel">
+            <div class="panel-heading">
+              <div><p class="eyebrow">Estructura</p><h3>Calendarios</h3></div>
+              <span id="admin-calendar-count" class="record-count"></span>
+            </div>
+            <div class="admin-list" id="admin-calendar-list"></div>
+          </article>
+          <article class="panel admin-panel">
+            <div class="panel-heading">
+              <div><p class="eyebrow">Equipo</p><h3>Usuarios</h3></div>
+              <span id="admin-user-count" class="record-count"></span>
+            </div>
+            <div class="admin-list" id="admin-user-list"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="settings-view" class="view" hidden>
+        <div class="hero-row">
+          <div><p class="eyebrow">Preferencias del sistema</p><h2>Configuración</h2><p class="muted">Ajusta la experiencia del calendario, los avisos y las reglas de disponibilidad.</p></div>
+        </div>
+        <form id="settings-form" class="settings-layout">
+          <article class="panel settings-card">
+            <div class="panel-heading"><div><p class="eyebrow">Calendario</p><h3>Visualización y jornada</h3></div></div>
+            <div class="form-grid">
+              <label>Calendarios visibles en distribución
+                <input name="distributionMaxCalendars" type="number" min="1" max="20" required>
+                <small>Limita la cantidad de filas mostradas en el resumen.</small>
+              </label>
+              <label>Actividades para completar la barra
+                <input name="distributionScaleMaxActivities" type="number" min="1" max="1000" required>
+                <small>Por ejemplo, con 10 la barra alcanza el 100% al llegar a 10 actividades.</small>
+              </label>
+              <label>Vista predeterminada<select name="defaultCalendarView"><option value="month">Mes</option><option value="week">Semana</option><option value="day">Día</option></select></label>
+              <label>Inicio de jornada<input name="workdayStartHour" type="number" min="0" max="23" required></label>
+              <label>Fin de jornada<input name="workdayEndHour" type="number" min="1" max="24" required></label>
+              <label>Intervalos<select name="calendarSlotMinutes"><option value="15">15 minutos</option><option value="30">30 minutos</option><option value="60">60 minutos</option></select></label>
+            </div>
+          </article>
+          <article class="panel settings-card">
+            <div class="panel-heading"><div><p class="eyebrow">Avisos</p><h3>Recordatorios y notificaciones</h3></div></div>
+            <div class="settings-stack">
+              <label class="switch-row"><span><strong>Recordatorios</strong><small>Permite programar avisos desde cada evento.</small></span><input name="remindersEnabled" type="checkbox"></label>
+              <label>Anticipación predeterminada (minutos)<input name="defaultReminderMinutes" type="number" min="5" max="10080" required></label>
+              <label class="switch-row"><span><strong>Notificaciones internas</strong><small>Muestra los avisos en el centro de notificaciones.</small></span><input name="notificationsEnabled" type="checkbox"></label>
+              <label>Conservar notificaciones leídas (días)<input name="notificationRetentionDays" type="number" min="1" max="365" required></label>
+              <label class="switch-row"><span><strong>Push del navegador</strong><small>Muestra avisos del sistema mientras la aplicación está activa.</small></span><input name="browserPushEnabled" type="checkbox"></label>
+              <button id="enable-browser-push" class="button ghost" type="button">Autorizar este navegador</button>
+            </div>
+          </article>
+          <article class="panel settings-card">
+            <div class="panel-heading"><div><p class="eyebrow">Canales externos</p><h3>Correo y WhatsApp</h3></div></div>
+            <div class="settings-stack">
+              <label class="switch-row"><span><strong>Correo por webhook</strong><small>Envía el destinatario y el aviso a tu proveedor o automatización.</small></span><input name="emailNotificationsEnabled" type="checkbox"></label>
+              <label>URL webhook de correo<input name="emailWebhookUrl" type="url" placeholder="https://..."></label>
+              <label class="switch-row"><span><strong>WhatsApp por webhook</strong><small>Compatible con proveedores que acepten JSON por HTTP.</small></span><input name="whatsappNotificationsEnabled" type="checkbox"></label>
+              <label>URL webhook de WhatsApp<input name="whatsappWebhookUrl" type="url" placeholder="https://..."></label>
+              <label>Número destinatario<input name="whatsappRecipient" placeholder="+18095551234"></label>
+            </div>
+          </article>
+          <article class="panel settings-card">
+            <div class="panel-heading"><div><p class="eyebrow">Disponibilidad</p><h3>Detección de conflictos</h3></div></div>
+            <div class="settings-stack">
+              <label class="switch-row"><span><strong>Ubicaciones</strong><small>Avisa si dos eventos ocupan el mismo lugar.</small></span><input name="locationConflictsEnabled" type="checkbox"></label>
+              <label class="switch-row"><span><strong>Salas y recursos</strong><small>Evita reservas simultáneas del mismo recurso.</small></span><input name="resourceConflictsEnabled" type="checkbox"></label>
+            </div>
+          </article>
+          <article class="panel settings-card resources-card">
+            <div class="panel-heading"><div><p class="eyebrow">Inventario</p><h3>Salas y recursos</h3></div><button id="new-resource" class="button ghost" type="button">Nuevo recurso</button></div>
+            <div id="resource-list" class="resource-list"></div>
+          </article>
+          <article class="panel settings-card developer-card">
+            <div class="panel-heading"><div><p class="eyebrow">Pruebas controladas</p><h3>Modo desarrollador</h3></div><span class="developer-badge">Solo administradores</span></div>
+            <label class="switch-row"><span><strong>Activar herramientas de prueba</strong><small>Permite generar avisos internos sin esperar a un evento real.</small></span><input name="developerModeEnabled" type="checkbox"></label>
+            <div id="developer-tools" class="developer-tools" hidden>
+              <div><strong>Probar el centro de notificaciones</strong><p id="developer-tools-note">Guarda la configuración para habilitar estas acciones.</p></div>
+              <div class="developer-actions">
+                <button id="test-notification" class="button ghost" type="button">Enviar notificación</button>
+                <button id="test-reminder" class="button ghost" type="button">Simular recordatorio</button>
+              </div>
+            </div>
+          </article>
+          <div class="settings-save"><p id="settings-error" class="form-error" hidden></p><button class="button primary" type="submit">Guardar configuración</button></div>
+        </form>
+      </section>
+
+      <section id="integrations-view" class="view" hidden>
+        <div class="hero-row">
+          <div>
+            <p class="eyebrow">Proveedores externos</p>
+            <h2>Integraciones</h2>
+            <p class="muted">La base interna conserva el control; cada proveedor recibe una copia sincronizada.</p>
+          </div>
+        </div>
+        <article class="panel integration-card">
+          <div class="integration-heading">
+            <div class="integration-provider">
+              <div class="google-mark">G</div>
+              <div>
+              <h3>Google Calendar</h3>
+                <p>Importa eventos y mantén los cambios sincronizados.</p>
+              </div>
+            </div>
+            <div id="google-integration-status" class="integration-connection" aria-live="polite">
+              <p class="muted">Consultando estado…</p>
+            </div>
+          </div>
+
+          <section id="google-import-section" class="integration-task" hidden>
+            <div class="integration-task-heading">
+              <div><p class="eyebrow">Importar desde Google</p><h4>Trae tus eventos al gestor</h4></div>
+              <span class="step-label">Paso principal</span>
+            </div>
+            <div class="import-flow">
+              <div class="import-endpoint">
+                <small>Origen</small>
+                <strong>Google Calendar principal</strong>
+                <span id="google-source-account"></span>
+              </div>
+              <span class="import-arrow" aria-hidden="true">→</span>
+              <label class="import-endpoint">Calendario interno de destino
+                <select id="google-import-calendar"></select>
+              </label>
+              <button id="import-google-changes" class="button primary" type="button">Importar eventos ahora</button>
+            </div>
+            <p class="import-help">La primera vez traeremos los eventos existentes. Las siguientes importaciones consultarán únicamente altas, cambios y cancelaciones nuevas.</p>
+            <div id="google-import-result"></div>
+          </section>
+
+          <section id="google-sync-section" class="sync-health-section" hidden>
+            <div id="google-sync-health"></div>
+            <button id="retry-sync" class="button ghost" type="button">Reintentar</button>
+          </section>
+
+          <div class="integration-management">
+            <button id="connect-google" class="button primary" hidden>Conectar cuenta de Google</button>
+            <button id="configure-google" class="button tertiary">Configurar</button>
+            <button id="disconnect-google" class="button danger" hidden>Desconectar</button>
+          </div>
+          <details id="google-setup-guide" class="setup-guide">
+            <summary>Ayuda para configurar Google Cloud</summary>
+            <ol>
+              <li>Activa Google Calendar API y crea un cliente OAuth para aplicación web.</li>
+              <li>Registra <code>http://localhost:3000/api/integrations/google/callback</code> como URI autorizada.</li>
+              <li>Copia las credenciales en el archivo <code>.env</code> y reinicia el servidor.</li>
+              <li>Usa <strong>Importar eventos ahora</strong> para la importación inicial y las consultas incrementales posteriores.</li>
+            </ol>
+            <p>Por seguridad, el Client Secret se configura únicamente en el servidor y nunca se muestra en el navegador.</p>
+            <div class="env-template">
+              <pre id="google-env-template">GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=http://localhost:3000/api/integrations/google/callback
+INTEGRATION_ENCRYPTION_KEY=</pre>
+              <button id="copy-env-template" class="button ghost" type="button">Copiar plantilla .env</button>
+            </div>
+          </details>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <div id="event-modal" class="modal-backdrop event-drawer-backdrop" hidden>
+    <section class="modal event-drawer" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-header">
+        <div><p class="eyebrow">Agenda empresarial</p><h2 id="modal-title">Nuevo evento</h2></div>
+        <button id="close-modal" class="icon-button" aria-label="Cerrar editor"><svg><use href="#icon-close"></use></svg></button>
+      </div>
+      <form id="event-form">
+        <input type="hidden" name="id">
+        <div class="event-form-content">
+          <div class="form-grid">
+          <label class="span-2">Título
+            <input name="title" required placeholder="Ej. Reunión con cliente">
+          </label>
+          <label>Calendario
+            <select name="calendarId" required></select>
+          </label>
+          <label>Tipo de evento
+            <select name="eventTypeId" required></select>
+          </label>
+          <label>Inicio
+            <input name="startDatetime" type="datetime-local" required>
+          </label>
+          <label>Final
+            <input name="endDatetime" type="datetime-local" required>
+          </label>
+          <fieldset id="recurrence-fields" class="recurrence-fields span-2">
+            <legend>Repetición</legend>
+            <label>Frecuencia
+              <select name="recurrenceFrequency">
+                <option value="">No se repite</option>
+                <option value="daily">Diaria</option>
+                <option value="weekly">Semanal</option>
+                <option value="monthly">Mensual</option>
+              </select>
+            </label>
+            <label>Cada
+              <input name="recurrenceInterval" type="number" min="1" max="12" value="1">
+            </label>
+            <label>Ocurrencias
+              <input name="recurrenceCount" type="number" min="2" max="100" value="10">
+            </label>
+          </fieldset>
+          <label id="series-scope-field" class="span-2" hidden>Aplicar cambios a
+            <select name="seriesScope">
+              <option value="single">Solo esta ocurrencia</option>
+              <option value="future">Esta y las siguientes</option>
+              <option value="series">Toda la serie</option>
+            </select>
+            <small>El alcance también se usará si cancelas el evento.</small>
+          </label>
+          <div id="conflict-preview" class="conflict-preview span-2" role="status" aria-live="polite" hidden></div>
+          <label>Responsable
+            <select name="responsibleUserId"><option value="">Sin asignar</option></select>
+          </label>
+          <label>Estado
+            <select name="status">
+              <option value="pending">Pendiente</option>
+              <option value="confirmed">Confirmado</option>
+              <option value="in_progress">En proceso</option>
+              <option value="completed">Completado</option>
+              <option value="draft">Borrador</option>
+              <option value="overdue">Vencido</option>
+              <option value="canceled">Cancelado</option>
+            </select>
+          </label>
+          <label>Prioridad
+            <select name="priority">
+              <option value="normal">Normal</option>
+              <option value="low">Baja</option>
+              <option value="high">Alta</option>
+              <option value="urgent">Urgente</option>
+            </select>
+          </label>
+          <label>Ubicación
+            <input name="location" placeholder="Oficina o enlace">
+          </label>
+          <label>Sala o recurso
+            <select name="resourceId"><option value="">Sin recurso</option></select>
+          </label>
+          <label class="reminder-field">Recordatorio
+            <select name="reminderMinutes">
+              <option value="">Sin recordatorio</option>
+              <option value="5">5 minutos antes</option><option value="15">15 minutos antes</option>
+              <option value="30">30 minutos antes</option><option value="60">1 hora antes</option>
+              <option value="1440">1 día antes</option>
+            </select>
+          </label>
+          <label class="span-2">Descripción
+            <textarea name="description" rows="3" placeholder="Notas y contexto del evento"></textarea>
+          </label>
+          <label class="checkbox-row span-2">
+            <input name="syncWithGoogle" type="checkbox"> Marcar para sincronizar con Google Calendar
+          </label>
+          </div>
+          <p id="event-error" class="form-error" hidden></p>
+        </div>
+        <div class="modal-actions">
+          <button id="delete-event" class="button danger" type="button" hidden>Cancelar evento</button>
+          <button id="sync-event" class="button google-button" type="button" hidden>Sincronizar ahora</button>
+          <span class="spacer"></span>
+          <button id="cancel-modal" class="button ghost" type="button">Cerrar</button>
+          <button class="button primary" type="submit">Guardar evento</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div id="calendar-admin-modal" class="modal-backdrop centered" hidden>
+    <section class="modal configuration-modal admin-editor-modal" role="dialog" aria-modal="true" aria-labelledby="calendar-admin-title">
+      <div class="modal-header">
+        <div><p class="eyebrow">Control de acceso</p><h2 id="calendar-admin-title">Nuevo calendario</h2></div>
+        <button id="close-calendar-admin" class="icon-button" type="button" aria-label="Cerrar editor de calendario"><svg><use href="#icon-close"></use></svg></button>
+      </div>
+      <form id="calendar-admin-form">
+        <input type="hidden" name="id">
+        <div class="form-grid">
+          <label class="span-2">Nombre
+            <input name="name" required maxlength="100" placeholder="Ej. Operaciones regionales">
+          </label>
+          <label class="span-2">Descripción
+            <textarea name="description" rows="2" placeholder="Propósito y alcance del calendario"></textarea>
+          </label>
+          <label>Color
+            <input name="color" type="color" value="#3f5fc4" required>
+          </label>
+          <label>Departamento
+            <select name="departmentId"><option value="">Toda la empresa</option></select>
+          </label>
+          <label>Visibilidad
+            <select name="visibility" required>
+              <option value="department">Departamento</option>
+              <option value="company">Toda la empresa</option>
+              <option value="private">Solo autorizados</option>
+            </select>
+          </label>
+          <label>Estado
+            <select name="status" required>
+              <option value="active">Activo</option>
+              <option value="archived">Archivado</option>
+            </select>
+          </label>
+        </div>
+        <section class="permission-section" aria-labelledby="permission-title">
+          <div>
+            <h3 id="permission-title">Permisos por usuario</h3>
+            <p>Crear, editar o cancelar activan también el acceso de lectura.</p>
+          </div>
+          <div class="permission-table" role="table" aria-label="Permisos del calendario">
+            <div class="permission-header" role="row">
+              <span>Usuario</span><span>Ver</span><span>Crear</span><span>Editar</span><span>Cancelar</span>
+            </div>
+            <div id="calendar-permission-list"></div>
+          </div>
+        </section>
+        <p id="calendar-admin-error" class="form-error" hidden></p>
+        <div class="modal-actions">
+          <button id="archive-admin-calendar" class="button danger" type="button" hidden>Archivar calendario</button>
+          <span class="spacer"></span>
+          <button id="cancel-calendar-admin" class="button ghost" type="button">Cancelar</button>
+          <button class="button primary" type="submit">Guardar calendario</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div id="user-admin-modal" class="modal-backdrop centered" hidden>
+    <section class="modal configuration-modal admin-editor-modal" role="dialog" aria-modal="true" aria-labelledby="user-admin-title">
+      <div class="modal-header">
+        <div><p class="eyebrow">Acceso al sistema</p><h2 id="user-admin-title">Nuevo usuario</h2></div>
+        <button id="close-user-admin" class="icon-button" type="button" aria-label="Cerrar editor de usuario"><svg><use href="#icon-close"></use></svg></button>
+      </div>
+      <form id="user-admin-form">
+        <input type="hidden" name="id">
+        <div class="form-grid">
+          <label class="span-2">Nombre completo
+            <input name="name" required maxlength="120" autocomplete="name">
+          </label>
+          <label class="span-2">Correo
+            <input name="email" type="email" required autocomplete="email">
+          </label>
+          <label class="span-2">Contraseña
+            <input name="password" type="password" minlength="8" autocomplete="new-password">
+            <small id="user-password-hint">Mínimo 8 caracteres.</small>
+          </label>
+          <label>Rol
+            <select name="roleId" required></select>
+          </label>
+          <label>Departamento
+            <select name="departmentId"><option value="">Sin departamento</option></select>
+          </label>
+          <label class="span-2">Estado
+            <select name="status" required>
+              <option value="active">Activo</option>
+              <option value="inactive">Inactivo</option>
+            </select>
+          </label>
+        </div>
+        <section id="user-calendar-section" class="permission-section" aria-labelledby="user-calendar-title">
+          <div class="user-calendar-heading">
+            <div><h3 id="user-calendar-title">Calendarios asignados</h3><p id="user-calendar-help">Asigna acceso explícito a varios calendarios desde el perfil.</p></div>
+            <span id="user-calendar-count" class="record-count">0 asignados</span>
+          </div>
+          <div id="user-calendar-assignment-list" class="user-calendar-assignment-list"></div>
+        </section>
+        <p id="user-admin-error" class="form-error" hidden></p>
+        <div class="modal-actions">
+          <span class="spacer"></span>
+          <button id="cancel-user-admin" class="button ghost" type="button">Cancelar</button>
+          <button class="button primary" type="submit">Guardar usuario</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div id="integration-config-modal" class="modal-backdrop centered" hidden>
+    <section class="modal configuration-modal" role="dialog" aria-modal="true" aria-labelledby="integration-config-title">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">Credenciales del proveedor</p>
+          <h2 id="integration-config-title">Configurar Google Calendar</h2>
+        </div>
+        <button id="close-integration-config" class="icon-button" type="button" aria-label="Cerrar configuración">
+          <svg><use href="#icon-close"></use></svg>
+        </button>
+      </div>
+      <form id="integration-config-form">
+        <div id="integration-config-source" class="configuration-source"></div>
+        <div class="configuration-fields">
+          <label>Google Client ID
+            <input name="clientId" autocomplete="off" required placeholder="000000000000-xxxx.apps.googleusercontent.com">
+          </label>
+          <label>Google Client Secret
+            <input name="clientSecret" type="password" autocomplete="new-password" placeholder="Introduce el secreto de OAuth">
+            <small id="client-secret-hint">El secreto se cifra antes de guardarse.</small>
+          </label>
+          <label>URI de redirección autorizada
+            <input name="redirectUri" type="url" required value="http://localhost:3000/api/integrations/google/callback">
+          </label>
+        </div>
+        <aside class="security-note">
+          <strong>Almacenamiento seguro</strong>
+          <p>El navegador envía el secreto una sola vez. El servidor lo cifra y nunca vuelve a incluirlo en una respuesta.</p>
+        </aside>
+        <p id="integration-config-error" class="form-error" hidden></p>
+        <div class="modal-actions">
+          <button id="reset-integration-config" class="button danger" type="button" hidden>Restablecer configuración</button>
+          <span class="spacer"></span>
+          <button id="cancel-integration-config" class="button ghost" type="button">Cancelar</button>
+          <button class="button primary" type="submit">Guardar configuración</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <div id="resource-modal" class="modal-backdrop centered" hidden>
+    <section class="modal configuration-modal resource-modal" role="dialog" aria-modal="true" aria-labelledby="resource-modal-title">
+      <div class="modal-header"><div><p class="eyebrow">Disponibilidad</p><h2 id="resource-modal-title">Nuevo recurso</h2></div><button id="close-resource-modal" class="icon-button" type="button" aria-label="Cerrar"><svg><use href="#icon-close"></use></svg></button></div>
+      <form id="resource-form"><input name="id" type="hidden"><div class="form-grid">
+        <label class="span-2">Nombre<input name="name" required maxlength="100" placeholder="Ej. Sala Norte"></label>
+        <label>Tipo<select name="type"><option value="room">Sala</option><option value="equipment">Equipo</option><option value="vehicle">Vehículo</option><option value="other">Otro</option></select></label>
+        <label>Estado<select name="status"><option value="active">Activo</option><option value="inactive">Inactivo</option></select></label>
+        <label class="span-2">Ubicación<input name="location" placeholder="Sede o zona"></label>
+      </div><p id="resource-error" class="form-error" hidden></p><div class="modal-actions"><span class="spacer"></span><button id="cancel-resource-modal" class="button ghost" type="button">Cancelar</button><button class="button primary" type="submit">Guardar recurso</button></div></form>
+    </section>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+  <script type="module" src="/app.js?v=9"></script>
+</body>
+</html>

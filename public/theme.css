@@ -1,0 +1,46 @@
+:root {
+  color-scheme: light;
+
+  --font-sans: "Aptos", "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  --font-display: "Aptos Display", "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  --font-data: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+
+  --ink: #202827;
+  --ink-soft: #3d4846;
+  --muted: #707a77;
+  --muted-2: #929b98;
+  --line: #dce0dc;
+  --line-strong: #c9ceca;
+
+  --background: #f3f2ed;
+  --surface: #faf9f5;
+  --surface-raised: #ffffff;
+  --surface-muted: #ecebe5;
+  --sidebar: #ebeae4;
+
+  --blue: #3f5fc4;
+  --blue-hover: #304da8;
+  --blue-soft: #e8ecf8;
+  --green: #3f7d68;
+  --green-soft: #e5f0eb;
+  --orange: #9a6b25;
+  --orange-soft: #f4ebdb;
+  --red: #ae514a;
+  --red-soft: #f6e8e6;
+
+  --radius-xs: .375rem;
+  --radius-sm: .625rem;
+  --radius-md: .875rem;
+  --radius-lg: 1.25rem;
+  --shadow-raised: 0 1rem 3rem rgba(53, 63, 60, .09);
+  --shadow-panel: 0 .25rem 1.25rem rgba(53, 63, 60, .055);
+
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --motion-fast: 160ms;
+  --motion-base: 240ms;
+
+  --z-sidebar: 20;
+  --z-topbar: 15;
+  --z-overlay: 50;
+  --z-toast: 60;
+}

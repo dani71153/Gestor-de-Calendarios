@@ -1,0 +1,18 @@
+{
+  "name": "gestor-central-calendarios",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MVP del Gestor Central de Calendarios Empresariales",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}
