@@ -2,9 +2,15 @@
 
 Primera versión funcional del MVP descrito en `design_gestor_calendarios.md`.
 
+## Documentación
+
+- [`MANUAL_USUARIO.md`](MANUAL_USUARIO.md): uso diario, roles, administración y resolución de problemas.
+- [`TECHNICAL.md`](TECHNICAL.md): arquitectura y referencia técnica.
+- [`deployment.md`](deployment.md): preparación y publicación en producción.
+
 ## Requisitos
 
-- Node.js 24 o superior.
+- Node.js 24.x.
 - npm.
 
 ## Instalación y ejecución
@@ -16,14 +22,34 @@ npm start
 
 La aplicación estará disponible en <http://localhost:3000>.
 
-Cuenta de demostración:
+En desarrollo, una base vacía carga estas cuentas de demostración:
 
 - Correo: `admin@empresa.com`
 - Contraseña: `Demo123!`
 
 Las cuentas `supervisor@empresa.com`, `reservas@empresa.com` y `ventas@empresa.com` usan la misma contraseña y permiten comprobar los diferentes alcances de permisos.
 
+El modo producción no crea estas cuentas. Una base vacía exige `INITIAL_ADMIN_EMAIL` e `INITIAL_ADMIN_PASSWORD` para crear un único Administrador inicial; la contraseña debe tener al menos 12 caracteres.
+
 La base de datos SQLite se crea automáticamente en `data/calendar-manager.sqlite` y se carga con calendarios, usuarios y eventos de prueba.
+
+## Preparación para producción
+
+Antes de iniciar con `NODE_ENV=production`, define una ruta persistente y secretos fuertes:
+
+```env
+NODE_ENV=production
+DATABASE_PATH=/ruta/persistente/calendar-manager.sqlite
+SESSION_SECRET=secreto-aleatorio-de-al-menos-32-caracteres
+INTEGRATION_ENCRYPTION_KEY=otra-clave-aleatoria-de-al-menos-32-caracteres
+INITIAL_ADMIN_NAME=Administrador
+INITIAL_ADMIN_EMAIL=admin@tu-dominio.com
+INITIAL_ADMIN_PASSWORD=una-contraseña-inicial-segura
+```
+
+En producción, el servidor rechaza valores predeterminados inseguros. Las sesiones y los estados OAuth se conservan en SQLite; las mutaciones requieren origen válido y token CSRF. Consulta [`deployment.md`](deployment.md) para la configuración de Render, Cloudflare, Google OAuth, backups y monitoreo.
+
+Después del primer inicio de producción, cambia la contraseña del Administrador y elimina `INITIAL_ADMIN_PASSWORD` del entorno.
 
 ## Alcance implementado
 

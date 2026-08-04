@@ -1,12 +1,17 @@
 export class ApiClient {
   constructor(baseUrl = '/api') {
     this.baseUrl = baseUrl;
+    this.csrfToken = null;
   }
 
   async request(path, options = {}) {
+    const method = String(options.method || 'GET').toUpperCase();
+    const csrfHeader = !['GET', 'HEAD', 'OPTIONS'].includes(method) && this.csrfToken
+      ? { 'X-CSRF-Token': this.csrfToken }
+      : {};
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...options,
-      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }
+      headers: { 'Content-Type': 'application/json', ...csrfHeader, ...(options.headers || {}) }
     });
     const data = await response.json();
     if (!response.ok) {
@@ -15,6 +20,7 @@ export class ApiClient {
       error.code = data.code;
       throw error;
     }
+    if (data.csrfToken) this.csrfToken = data.csrfToken;
     return data;
   }
 

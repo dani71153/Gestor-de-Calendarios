@@ -36,17 +36,16 @@
       <div>
         <p class="eyebrow">Bienvenido</p>
         <h2>Inicia sesión</h2>
-        <p class="muted">Usa la cuenta de demostración para explorar el MVP.</p>
+        <p class="muted">Accede con las credenciales proporcionadas por tu administrador.</p>
       </div>
       <label>Correo
-        <input name="email" type="email" value="admin@empresa.com" required>
+        <input name="email" type="email" autocomplete="username" required>
       </label>
       <label>Contraseña
-        <input name="password" type="password" value="Demo123!" required>
+        <input name="password" type="password" autocomplete="current-password" required>
       </label>
       <p id="login-error" class="form-error" hidden></p>
       <button class="button primary full" type="submit">Entrar al gestor</button>
-      <p class="demo-note">Demo: admin@empresa.com · Demo123!</p>
     </form>
   </section>
 

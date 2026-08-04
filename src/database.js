@@ -16,7 +16,11 @@ function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
   return `${salt}:${hash}`;
 }
 
-function initializeDatabase() {
+// seed: 'auto' aplica el comportamiento normal del servidor (demo en desarrollo,
+// administrador inicial en producción); 'base' crea solo roles, departamentos y
+// tipos de evento; 'none' deja la base vacía y lista para poblarse manualmente.
+function initializeDatabase(options = {}) {
+  const seed = options.seed || 'auto';
   db.exec(`
     CREATE TABLE IF NOT EXISTS roles (
       id INTEGER PRIMARY KEY,
@@ -41,6 +45,22 @@ function initializeDatabase() {
       status TEXT NOT NULL DEFAULT 'active',
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      token_hash TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      csrf_token TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS oauth_states (
+      state_hash TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS calendars (
@@ -256,6 +276,8 @@ function initializeDatabase() {
     CREATE INDEX IF NOT EXISTS idx_events_dates ON events(start_datetime, end_datetime);
     CREATE INDEX IF NOT EXISTS idx_events_responsible ON events(responsible_user_id);
     CREATE INDEX IF NOT EXISTS idx_events_status ON events(status);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at);
     CREATE INDEX IF NOT EXISTS idx_event_reminders_due ON event_reminders(status, event_id);
     CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, read_at, created_at);
     CREATE INDEX IF NOT EXISTS idx_sync_logs_event ON sync_logs(event_id, created_at);
@@ -275,9 +297,18 @@ function initializeDatabase() {
     SET sync_status = 'not_synced'
     WHERE sync_status = 'synced' AND google_event_id IS NULL;
   `);
-  seedDatabase();
-  ensureDemoPermissions();
-  ensureDefaultResources();
+  if (seed === 'auto') {
+    seedDatabase();
+    if (!config.isProduction) {
+      ensureDemoPermissions();
+      ensureDefaultResources();
+    }
+  } else if (seed === 'base') {
+    seedBaseCatalogs();
+  }
+  if (config.isProduction) {
+    assertNoActiveDemoCredentials();
+  }
   ensureDefaultSettings();
 }
 
@@ -288,21 +319,45 @@ function ensureColumn(table, column, definition) {
   }
 }
 
+// Catálogos mínimos para que la aplicación funcione sin datos de demostración.
+// Es idempotente y no abre transacción propia para poder reutilizarse dentro de otra.
+function seedBaseCatalogs() {
+  const insertRole = db.prepare('INSERT OR IGNORE INTO roles (name, description) VALUES (?, ?)');
+  ['Administrador', 'Supervisor', 'Empleado', 'Consulta'].forEach((roleName) => {
+    insertRole.run(roleName, `Rol ${roleName.toLowerCase()}`);
+  });
+
+  const insertDepartment = db.prepare('INSERT OR IGNORE INTO departments (name, description) VALUES (?, ?)');
+  ['Dirección', 'Operaciones', 'Reservas', 'Ventas', 'Marketing'].forEach((departmentName) => {
+    insertDepartment.run(departmentName, `Departamento de ${departmentName.toLowerCase()}`);
+  });
+
+  const insertType = db.prepare(`
+    INSERT OR IGNORE INTO event_types (name, description, color, requires_responsible)
+    VALUES (?, ?, ?, ?)
+  `);
+  [
+    ['Reserva', 'Gestión de una reserva', '#10B981', 1],
+    ['Reunión', 'Reunión interna o externa', '#8B5CF6', 1],
+    ['Pago', 'Pago o vencimiento financiero', '#F59E0B', 1],
+    ['Seguimiento', 'Seguimiento comercial', '#4F6BED', 1],
+    ['Publicación', 'Contenido de marketing', '#EC4899', 0],
+    ['Entrega', 'Entrega de documentos', '#06B6D4', 1]
+  ].forEach((type) => insertType.run(...type));
+}
+
 function seedDatabase() {
   const existing = db.prepare('SELECT COUNT(*) AS count FROM users').get().count;
   if (existing > 0) return;
 
+  if (config.isProduction) {
+    seedProductionDatabase();
+    return;
+  }
+
   db.exec('BEGIN');
   try {
-    const insertRole = db.prepare('INSERT INTO roles (name, description) VALUES (?, ?)');
-    ['Administrador', 'Supervisor', 'Empleado', 'Consulta'].forEach((name) => {
-      insertRole.run(name, `Rol ${name.toLowerCase()}`);
-    });
-
-    const insertDepartment = db.prepare('INSERT INTO departments (name, description) VALUES (?, ?)');
-    ['Dirección', 'Operaciones', 'Reservas', 'Ventas', 'Marketing'].forEach((name) => {
-      insertDepartment.run(name, `Departamento de ${name.toLowerCase()}`);
-    });
+    seedBaseCatalogs();
 
     const insertUser = db.prepare(`
       INSERT INTO users (name, email, password_hash, role_id, department_id)
@@ -329,19 +384,6 @@ function seedDatabase() {
       ['Marketing', 'Campañas y publicaciones', '#EC4899', 5],
       ['Reuniones', 'Reuniones empresariales', '#8B5CF6', 1]
     ].forEach((calendar) => insertCalendar.run(...calendar));
-
-    const insertType = db.prepare(`
-      INSERT INTO event_types (name, description, color, requires_responsible)
-      VALUES (?, ?, ?, ?)
-    `);
-    [
-      ['Reserva', 'Gestión de una reserva', '#10B981', 1],
-      ['Reunión', 'Reunión interna o externa', '#8B5CF6', 1],
-      ['Pago', 'Pago o vencimiento financiero', '#F59E0B', 1],
-      ['Seguimiento', 'Seguimiento comercial', '#4F6BED', 1],
-      ['Publicación', 'Contenido de marketing', '#EC4899', 0],
-      ['Entrega', 'Entrega de documentos', '#06B6D4', 1]
-    ].forEach((type) => insertType.run(...type));
 
     const today = new Date();
     const at = (offsetDays, hour, minute = 0) => {
@@ -371,6 +413,39 @@ function seedDatabase() {
   }
 }
 
+function seedProductionDatabase() {
+  const { name, email, password } = config.initialAdmin;
+  if (!/^\S+@\S+\.\S+$/.test(email)) {
+    throw new Error('INITIAL_ADMIN_EMAIL es obligatorio y debe ser un correo válido para inicializar producción');
+  }
+  if (password.length < 12 || password === 'Demo123!') {
+    throw new Error('INITIAL_ADMIN_PASSWORD debe tener al menos 12 caracteres y no puede ser la contraseña demo');
+  }
+
+  db.exec('BEGIN');
+  try {
+    seedBaseCatalogs();
+
+    const role = db.prepare("SELECT id FROM roles WHERE name = 'Administrador'").get();
+    const department = db.prepare("SELECT id FROM departments WHERE name = 'Dirección'").get();
+    db.prepare(`
+      INSERT INTO users (name, email, password_hash, role_id, department_id)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(
+      name.trim() || 'Administrador',
+      email.trim().toLowerCase(),
+      hashPassword(password),
+      role.id,
+      department.id
+    );
+    db.exec('COMMIT');
+    console.log(`Administrador inicial creado para ${email.trim().toLowerCase()}`);
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+}
+
 function ensureDemoPermissions() {
   const grants = [
     ['supervisor@empresa.com', 'Operaciones', 1, 1, 1, 1],
@@ -388,6 +463,34 @@ function ensureDemoPermissions() {
   grants.forEach(([email, calendar, canView, canCreate, canEdit, canDelete]) => {
     insert.run(canView, canCreate, canEdit, canDelete, calendar, email);
   });
+}
+
+function passwordMatches(password, stored) {
+  if (typeof stored !== 'string' || !stored.includes(':')) return false;
+  const [salt, expected] = stored.split(':');
+  const actual = crypto.scryptSync(password, salt, 64);
+  const expectedBuffer = Buffer.from(expected, 'hex');
+  return actual.length === expectedBuffer.length && crypto.timingSafeEqual(actual, expectedBuffer);
+}
+
+function assertNoActiveDemoCredentials() {
+  const demoEmails = [
+    'admin@empresa.com',
+    'supervisor@empresa.com',
+    'reservas@empresa.com',
+    'ventas@empresa.com'
+  ];
+  const users = db.prepare(`
+    SELECT email, password_hash AS passwordHash
+    FROM users
+    WHERE status = 'active' AND lower(email) IN (${demoEmails.map(() => '?').join(',')})
+  `).all(...demoEmails);
+  const exposed = users.filter((user) => passwordMatches('Demo123!', user.passwordHash));
+  if (exposed.length) {
+    throw new Error(
+      `Producción bloqueada: cambia o desactiva las credenciales demo de ${exposed.map((user) => user.email).join(', ')}`
+    );
+  }
 }
 
 function ensureDefaultResources() {

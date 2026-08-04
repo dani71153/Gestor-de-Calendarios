@@ -1,5 +1,6 @@
 const crypto = require('node:crypto');
 const { db } = require('../database');
+const config = require('../config');
 const {
   accessibleCalendarIds,
   calendarCapabilities,
@@ -7,17 +8,31 @@ const {
   requireAdministrator
 } = require('../authorization');
 
-const oauthStates = new Map();
 const STATE_DURATION_MS = 10 * 60 * 1000;
 
-function requireSameOrigin(req, res, next) {
-  const origin = req.get('origin');
-  if (!origin) return next();
-  const expectedOrigin = `${req.protocol}://${req.get('host')}`;
-  if (origin !== expectedOrigin) {
-    return res.status(403).json({ success: false, error: 'Origen de solicitud no permitido' });
-  }
-  next();
+function stateHash(state) {
+  return crypto.createHash('sha256').update(String(state || '')).digest('hex');
+}
+
+function saveOauthState(state, userId) {
+  const now = new Date();
+  db.prepare('DELETE FROM oauth_states WHERE expires_at <= ?').run(now.toISOString());
+  db.prepare('INSERT INTO oauth_states (state_hash, user_id, expires_at) VALUES (?, ?, ?)').run(
+    stateHash(state),
+    userId,
+    new Date(now.getTime() + STATE_DURATION_MS).toISOString()
+  );
+}
+
+function consumeOauthState(state) {
+  if (typeof state !== 'string' || !state) return null;
+  const hash = stateHash(state);
+  const record = db.prepare(`
+    SELECT user_id AS userId, expires_at AS expiresAt
+    FROM oauth_states WHERE state_hash = ?
+  `).get(hash);
+  db.prepare('DELETE FROM oauth_states WHERE state_hash = ?').run(hash);
+  return record || null;
 }
 
 function validateProviderSettings(input) {
@@ -28,6 +43,7 @@ function validateProviderSettings(input) {
   try {
     const redirectUri = new URL(input.redirectUri);
     if (!['http:', 'https:'].includes(redirectUri.protocol)) return 'La URI debe usar HTTP o HTTPS';
+    if (config.isProduction && redirectUri.protocol !== 'https:') return 'La URI debe usar HTTPS en producción';
     if (redirectUri.username || redirectUri.password) return 'La URI no puede contener credenciales';
     if (!redirectUri.pathname.endsWith('/api/integrations/google/callback')) {
       return 'La URI debe terminar en /api/integrations/google/callback';
@@ -58,7 +74,6 @@ function registerIntegrationRoutes(app, {
     '/api/integrations/google/config',
     authMiddleware,
     requireAdministrator,
-    requireSameOrigin,
     (req, res) => {
       const input = req.body || {};
       const validationError = validateProviderSettings(input);
@@ -91,7 +106,6 @@ function registerIntegrationRoutes(app, {
     '/api/integrations/google/config',
     authMiddleware,
     requireAdministrator,
-    requireSameOrigin,
     (req, res) => {
       const previous = settingsRepository.publicSettings(provider.name);
       const settings = settingsRepository.remove(provider.name);
@@ -114,7 +128,7 @@ function registerIntegrationRoutes(app, {
   app.post('/api/integrations/google/connect', authMiddleware, (req, res) => {
     try {
       const state = crypto.randomBytes(32).toString('base64url');
-      oauthStates.set(state, { userId: req.user.id, expiresAt: Date.now() + STATE_DURATION_MS });
+      saveOauthState(state, req.user.id);
       res.json({ success: true, authorizationUrl: provider.getAuthorizationUrl(state) });
     } catch (error) {
       const status = error.code === 'PROVIDER_NOT_CONFIGURED' ? 503 : 500;
@@ -123,9 +137,9 @@ function registerIntegrationRoutes(app, {
   });
 
   app.get('/api/integrations/google/callback', authMiddleware, async (req, res) => {
-    const stateRecord = oauthStates.get(req.query.state);
-    oauthStates.delete(req.query.state);
-    if (!stateRecord || stateRecord.expiresAt < Date.now() || stateRecord.userId !== req.user.id) {
+    const stateRecord = consumeOauthState(req.query.state);
+    if (!stateRecord || new Date(stateRecord.expiresAt).getTime() < Date.now()
+      || stateRecord.userId !== req.user.id) {
       return res.redirect('/?integration=error&message=Estado+OAuth+inválido');
     }
     if (req.query.error) {
@@ -187,7 +201,7 @@ function registerIntegrationRoutes(app, {
     });
   });
 
-  app.post('/api/sync/import', authMiddleware, requireSameOrigin, async (req, res) => {
+  app.post('/api/sync/import', authMiddleware, async (req, res) => {
     const calendarId = Number(req.body?.calendarId);
     if (!calendarId) {
       return res.status(400).json({ success: false, error: 'Selecciona el calendario de destino' });

@@ -2,7 +2,8 @@ const express = require('express');
 const path = require('node:path');
 const config = require('./config');
 const { initializeDatabase } = require('./database');
-const { authMiddleware, registerAuthRoutes } = require('./auth');
+const { authMiddleware, csrfMiddleware, registerAuthRoutes } = require('./auth');
+const { securityHeaders, requireSameOrigin } = require('./security');
 const { registerEventRoutes } = require('./events');
 const { registerAdministrationRoutes } = require('./administration');
 const { registerSettingsRoutes } = require('./settings');
@@ -18,7 +19,10 @@ initializeDatabase();
 
 const app = express();
 app.disable('x-powered-by');
+if (config.isProduction) app.set('trust proxy', 1);
+app.use(securityHeaders);
 app.use(express.json({ limit: '1mb' }));
+app.use('/api', requireSameOrigin, csrfMiddleware);
 app.use(express.static(path.join(config.rootDir, 'public')));
 
 app.get('/api/health', (req, res) => {
