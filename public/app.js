@@ -1222,6 +1222,7 @@ function openEventModal(event = null, date = null) {
   } else {
     prepareConflictPreview(form);
   }
+  renderCalendarGuidance();
   const formScroller = form.querySelector('.event-form-content');
   formScroller.scrollTop = 0;
   setOverlayOpen($('#event-modal'), true);
@@ -1396,6 +1397,63 @@ function pendingCard(file, index) {
       <button class="attachment-delete icon-button" type="button" data-pending-index="${index}"
         aria-label="Quitar ${escapeHtml(file.name)}"><svg><use href="#icon-close"></use></svg></button>
     </figure>`;
+}
+
+// Las pautas del calendario ya viajaban al navegador y no se mostraban en ningún
+// sitio. Se ofrecen tras un botón y no de forma permanente: quien registra veinte
+// eventos al día no necesita releerlas cada vez.
+//
+// No se incluyen las descripciones de los tipos de evento: son relleno del
+// catálogo que repite la etiqueta («Entrega» → «Entrega de documentos»).
+const GUIDANCE_SEEN_KEY = 'calendarGuidanceSeen';
+
+function guidanceSeen() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(GUIDANCE_SEEN_KEY) || '[]'));
+  } catch {
+    return new Set();
+  }
+}
+
+function toggleCalendarGuidance(open) {
+  const panel = $('#calendar-guidance');
+  const boton = $('#calendar-guidance-toggle');
+  if (!panel || !boton) return;
+  const abrir = open === undefined ? panel.hidden : open;
+  panel.hidden = !abrir;
+  boton.setAttribute('aria-expanded', String(abrir));
+  boton.classList.toggle('is-active', abrir);
+}
+
+function renderCalendarGuidance() {
+  const panel = $('#calendar-guidance');
+  const boton = $('#calendar-guidance-toggle');
+  if (!panel || !boton) return;
+
+  const calendario = state.calendars.find(
+    (item) => item.id === Number($('#event-form').elements.calendarId.value)
+  );
+  const texto = calendario?.description?.trim();
+
+  // Sin pautas escritas no hay botón: su presencia es la señal de que hay algo.
+  boton.hidden = !texto;
+  if (!texto) {
+    toggleCalendarGuidance(false);
+    return;
+  }
+
+  panel.innerHTML = `<span><strong>${escapeHtml(calendario.name)}</strong> ${escapeHtml(texto)}</span>`;
+
+  // La primera vez que este navegador ve un calendario con pautas se abren solas.
+  // Escondidas siempre, quien no sepa que existen no llegaría a leerlas nunca.
+  const vistas = guidanceSeen();
+  if (!vistas.has(calendario.id)) {
+    vistas.add(calendario.id);
+    localStorage.setItem(GUIDANCE_SEEN_KEY, JSON.stringify([...vistas]));
+    toggleCalendarGuidance(true);
+    return;
+  }
+  toggleCalendarGuidance(false);
 }
 
 function renderAttachments(attachments = state.attachments) {
@@ -1959,6 +2017,8 @@ $('#event-search').addEventListener('input', () => {
   clearTimeout(loadEventList.searchTimer);
   loadEventList.searchTimer = setTimeout(() => loadEventList().catch((error) => toast(error.message)), 300);
 });
+$('#event-form').elements.calendarId.addEventListener('change', renderCalendarGuidance);
+$('#calendar-guidance-toggle').addEventListener('click', () => toggleCalendarGuidance());
 ['startDatetime', 'endDatetime', 'responsibleUserId', 'resourceId', 'location'].forEach((name) => {
   $('#event-form').elements[name].addEventListener('change', scheduleConflictCheck);
   if (!['responsibleUserId', 'resourceId'].includes(name)) {

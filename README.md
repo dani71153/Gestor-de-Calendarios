@@ -7,6 +7,7 @@ Primera versión funcional del MVP descrito en `design_gestor_calendarios.md`.
 - [`MANUAL_USUARIO.md`](MANUAL_USUARIO.md): uso diario, roles, administración y resolución de problemas.
 - [`TECHNICAL.md`](TECHNICAL.md): arquitectura y referencia técnica.
 - [`deployment.md`](deployment.md): preparación y publicación en producción.
+- [`IMPROVEMENTS.md`](IMPROVEMENTS.md): mejoras de calidad de vida pendientes, con lo que abarata cada una.
 - [`docs/adr/`](docs/adr/): registro de decisiones de arquitectura y por qué se tomaron.
 
 ## Requisitos
@@ -483,6 +484,18 @@ El tipo se deduce de los **primeros bytes del archivo**, no del `Content-Type` q
 Subir archivos obliga a `multipart/form-data`, mientras que el resto de la API exige `application/json` como defensa CSRF. Esa excepción está acotada por expresión regular a `/api/events/<número>/attachments` en [`src/security.js`](src/security.js): cualquier otra ruta sigue rechazando multipart. Lo que protege la subida es la comprobación de `Origin`, `Sec-Fetch-Site` y el token CSRF, que un formulario cross-site tampoco supera.
 
 El formulario se interpreta con `Response.formData()` de la plataforma, así que **no se añadió ninguna dependencia**: el proyecto sigue dependiendo solo de `express`.
+
+## Pautas por calendario
+
+La descripción que escribas al crear un calendario está disponible al registrar un evento, tras un botón de ayuda **⊙** junto al selector de calendario.
+
+Sirve como ayuda en contexto sin manual aparte: escribe ahí cómo debe usarse ese calendario —qué va, qué no, qué datos no pueden faltar— y quien registre un evento lo tendrá a mano en el momento de decidir. Se edita en **Administración → Calendarios**, campo *Descripción*.
+
+Tres decisiones sobre cómo se muestra:
+
+- **El botón solo aparece si ese calendario tiene pautas escritas.** Su presencia es la señal de que hay algo que leer; si no hay nada, no ocupa espacio ni invita a pulsar en vano.
+- **Las pautas se abren solas la primera vez** que ese navegador las encuentra, y quedan plegadas a partir de entonces. Escondidas siempre, quien no sepa que existen no llegaría a leerlas; visibles siempre, estorban a quien registra veinte eventos al día.
+- **No se muestran las descripciones de los tipos de evento.** Son relleno del catálogo que repite la etiqueta —«Entrega» → «Entrega de documentos»— y solo añadían ruido.
 
 ## Series, reportes y avisos externos
 
