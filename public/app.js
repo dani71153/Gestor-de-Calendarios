@@ -194,6 +194,7 @@ async function loadSettings() {
   $('.reminder-field').hidden = !state.settings.remindersEnabled;
   renderBackupDestinations(state.settings.backupDestinations);
   loadBackupStatus().catch(() => {});
+  renderPushStatus().catch(() => {});
   renderGoogleIntegration();
   renderDeveloperTools();
 }
@@ -375,6 +376,7 @@ async function saveSettings(event) {
     $('.reminder-field').hidden = !state.settings.remindersEnabled;
     renderBackupDestinations(state.settings.backupDestinations);
     loadBackupStatus().catch(() => {});
+    renderPushStatus().catch(() => {});
     renderDeveloperTools();
     renderCalendar();
     await loadDashboard();
@@ -429,6 +431,54 @@ async function loadNotifications() {
   await showBrowserPush(data.notifications);
 }
 
+// Para que salga un aviso del sistema hacen falta DOS cosas independientes: el
+// permiso de este navegador y el ajuste del sistema, que es global y solo puede
+// tocar un administrador. Antes se concedía el permiso, se decía «autorizado» y
+// no aparecía nada, sin explicar que faltaba la otra mitad.
+async function renderPushStatus() {
+  const panel = $('#push-status');
+  if (!panel) return;
+
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+    panel.className = 'push-status error';
+    panel.textContent = 'Este navegador no admite notificaciones del sistema.';
+    return;
+  }
+
+  const permiso = Notification.permission;
+  const activo = Boolean(state.settings.browserPushEnabled);
+  const registros = await navigator.serviceWorker.getRegistrations();
+
+  const partes = [
+    `Este navegador: ${{
+      granted: 'autorizado',
+      denied: 'bloqueado',
+      default: 'sin autorizar'
+    }[permiso] || permiso}`,
+    `Ajuste del sistema: ${activo ? 'activo' : 'desactivado'}`
+  ];
+
+  let estado = 'ok';
+  let consejo = 'Los avisos del sistema se mostrarán al llegar una notificación.';
+
+  if (permiso === 'denied') {
+    estado = 'error';
+    consejo = 'Edge o Chrome tienen bloqueado este sitio. Cámbialo en el candado de la barra de direcciones.';
+  } else if (permiso !== 'granted') {
+    estado = 'aviso';
+    consejo = 'Pulsa «Autorizar este navegador».';
+  } else if (!activo) {
+    estado = 'aviso';
+    consejo = 'Falta activar «Push del navegador» aquí arriba y guardar la configuración.';
+  } else if (!registros.length) {
+    estado = 'aviso';
+    consejo = 'El service worker se registrará solo con el próximo aviso.';
+  }
+
+  panel.className = `push-status ${estado}`;
+  panel.innerHTML = `<span>${partes.join(' · ')}</span><small>${escapeHtml(consejo)}</small>`;
+}
+
 async function enableBrowserPush() {
   if (!('Notification' in window) || !('serviceWorker' in navigator)) {
     toast('Este navegador no admite notificaciones del sistema');
@@ -437,10 +487,26 @@ async function enableBrowserPush() {
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') {
     toast('El permiso de notificaciones no fue concedido');
+    await renderPushStatus();
     return;
   }
   await navigator.serviceWorker.register('/sw.js');
-  toast('Push autorizado en este navegador');
+  await renderPushStatus();
+  // Conceder el permiso no basta: decirlo evita dar por hecho que ya funciona.
+  toast(state.settings.browserPushEnabled
+    ? 'Push autorizado en este navegador'
+    : 'Navegador autorizado. Falta activar «Push del navegador» y guardar.');
+}
+
+// navigator.serviceWorker.ready no resuelve NUNCA si no hay ningún registro para
+// el origen, y tampoco rechaza. Esperarlo a ciegas dejaba las notificaciones del
+// sistema calladas para siempre —sin error visible— en cuanto alguien borraba los
+// datos del sitio conservando el permiso. Se comprueba y se vuelve a registrar.
+async function pushRegistration() {
+  const existente = await navigator.serviceWorker.getRegistration();
+  if (existente?.active) return existente;
+  await navigator.serviceWorker.register('/sw.js');
+  return navigator.serviceWorker.ready;
 }
 
 async function showBrowserPush(notifications) {
@@ -449,7 +515,7 @@ async function showBrowserPush(notifications) {
   const seen = new Set(JSON.parse(localStorage.getItem('pushedNotificationIds') || '[]'));
   const pending = notifications.filter((item) => !item.readAt && !seen.has(item.id)).slice(0, 3);
   if (!pending.length) return;
-  const registration = await navigator.serviceWorker.ready;
+  const registration = await pushRegistration();
   for (const item of pending) {
     await registration.showNotification(item.title, { body: item.message, icon: '/favicon.svg', tag: `notification-${item.id}` });
     seen.add(item.id);
@@ -557,7 +623,16 @@ async function sendTestNotification(variant) {
     });
     await loadNotifications();
     toggleNotificationPanel(true);
-    toast(variant === 'reminder' ? 'Recordatorio de prueba generado' : 'Notificación de prueba generada');
+    // Sin esto el botón parecía funcionar aunque el aviso del sistema no llegara
+    // a salir: la notificación interna sí se crea, que es lo que confundía.
+    const bloqueo = !state.settings.browserPushEnabled
+      ? 'el ajuste «Push del navegador» está desactivado'
+      : window.Notification?.permission !== 'granted'
+        ? 'este navegador no tiene el permiso concedido'
+        : null;
+    toast(bloqueo
+      ? `Aviso creado en la campana, pero no saldrá en el sistema: ${bloqueo}`
+      : variant === 'reminder' ? 'Recordatorio de prueba generado' : 'Notificación de prueba generada');
   } catch (error) {
     toast(error.message);
   } finally {

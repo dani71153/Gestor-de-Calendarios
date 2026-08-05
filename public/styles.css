@@ -1684,6 +1684,25 @@ td small {
   border-radius: 50%;
 }
 
+.push-status {
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+  padding: .5rem .7rem;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--line);
+  background: var(--surface-muted);
+  font-size: .8rem;
+}
+
+.push-status small {
+  color: var(--muted);
+}
+
+.push-status.ok { border-left-color: #10B981; }
+.push-status.aviso { border-left-color: #F59E0B; }
+.push-status.error { border-left-color: #e5484d; }
+
 .backup-destinations {
   display: flex;
   flex-direction: column;
