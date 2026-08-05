@@ -63,6 +63,16 @@ const state = {
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 
+// form.reset() no vacía los input hidden. En type=hidden el IDL «value» está en
+// modo default, así que asignar .value escribe el ATRIBUTO value, que es
+// exactamente lo que reset() restaura. Sin limpiarlos a mano, abrir un registro
+// y pulsar después «Nuevo» dejaba el id anterior en el formulario, y al guardar
+// se sobrescribía aquel registro en lugar de crear uno.
+function resetForm(form) {
+  form.reset();
+  form.querySelectorAll('input[type=hidden]').forEach((input) => { input.value = ''; });
+}
+
 async function api(url, options = {}) {
   return apiClient.request(url.replace(/^\/api/, ''), options);
 }
@@ -149,6 +159,19 @@ async function loadMetadata() {
   $('#event-form [name=eventTypeId]').innerHTML = state.eventTypes.map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('');
   $('#event-form [name=responsibleUserId]').innerHTML = `<option value="">Sin asignar</option>${state.users.map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('')}`;
   $('#event-form [name=resourceId]').innerHTML = `<option value="">Sin recurso</option>${state.resources.map((item) => `<option value="${item.id}">${escapeHtml(item.name)}${item.location ? ` · ${escapeHtml(item.location)}` : ''}</option>`).join('')}`;
+  // Responsable y autor son dos preguntas distintas sobre las mismas personas.
+  // Se agrupan con optgroup para que la distinción quede explícita en el propio
+  // desplegable, en vez de necesitar dos controles.
+  const porPersona = (prefijo) => state.users
+    .map((item) => `<option value="${prefijo}:${item.id}">${escapeHtml(item.name)}</option>`)
+    .join('');
+  $('#responsibility-filter').innerHTML = `
+    <option value="">Todas las personas</option>
+    <option value="mine">Mis eventos</option>
+    <option value="unassigned">Sin responsable</option>
+    <optgroup label="Responsable de">${porPersona('resp')}</optgroup>
+    <optgroup label="Registrado por">${porPersona('autor')}</optgroup>`;
+
   const canCreateEvent = state.calendars.some((calendar) => calendar.canCreate);
   $$('.new-event').forEach((button) => { button.hidden = !canCreateEvent; });
 }
@@ -366,7 +389,7 @@ async function saveSettings(event) {
 function openResourceModal(resource = null) {
   state.lastFocused = document.activeElement;
   const form = $('#resource-form');
-  form.reset();
+  resetForm(form);
   $('#resource-error').hidden = true;
   $('#resource-modal-title').textContent = resource ? 'Editar recurso' : 'Nuevo recurso';
   if (resource) Object.entries(resource).forEach(([name, value]) => {
@@ -575,7 +598,7 @@ async function openCalendarAdministration(calendar = null) {
   if (!state.roles.length) await loadAdministration();
   state.lastFocused = document.activeElement;
   const form = $('#calendar-admin-form');
-  form.reset();
+  resetForm(form);
   form.elements.departmentId.innerHTML = departmentOptions('Toda la empresa');
   $('#calendar-admin-error').hidden = true;
   $('#calendar-admin-title').textContent = calendar ? 'Editar calendario' : 'Nuevo calendario';
@@ -701,7 +724,7 @@ async function openUserAdministration(user = null) {
   if (!state.roles.length) await loadAdministration();
   state.lastFocused = document.activeElement;
   const form = $('#user-admin-form');
-  form.reset();
+  resetForm(form);
   form.elements.roleId.innerHTML = state.roles
     .map((role) => `<option value="${role.id}">${escapeHtml(role.name)}</option>`)
     .join('');
@@ -842,8 +865,11 @@ async function loadEventList() {
   if (search) params.set('q', search);
   if ($('#list-calendar-filter').value) params.set('calendarId', $('#list-calendar-filter').value);
   if ($('#status-filter').value) params.set('status', $('#status-filter').value);
-  if ($('#responsibility-filter').value === 'mine') params.set('responsibleUserId', state.user.id);
-  if ($('#responsibility-filter').value === 'unassigned') params.set('unassigned', 'true');
+  const personas = $('#responsibility-filter').value;
+  if (personas === 'mine') params.set('responsibleUserId', state.user.id);
+  else if (personas === 'unassigned') params.set('unassigned', 'true');
+  else if (personas.startsWith('resp:')) params.set('responsibleUserId', personas.slice(5));
+  else if (personas.startsWith('autor:')) params.set('createdBy', personas.slice(6));
   if (state.eventPreset) params.set('preset', state.eventPreset);
   const { events } = await api(`/api/events?${params}`);
   if (requestId !== state.listRequest) return;
@@ -864,7 +890,13 @@ function renderFilterContext() {
   const calendarId = Number($('#list-calendar-filter').value || 0);
   const calendar = state.calendars.find((item) => item.id === calendarId);
   const status = $('#status-filter').selectedOptions[0]?.textContent;
-  const responsibility = $('#responsibility-filter').selectedOptions[0]?.textContent;
+  // Dentro de un optgroup la opción es solo el nombre; sin la etiqueta del grupo
+  // no se distinguiría «responsable de Ana» de «registrado por Ana».
+  const opcionPersona = $('#responsibility-filter').selectedOptions[0];
+  const grupo = opcionPersona?.parentElement?.label;
+  const responsibility = grupo
+    ? `${grupo} ${opcionPersona.textContent}`
+    : opcionPersona?.textContent;
   const presetLabels = {
     today: 'Eventos de hoy',
     upcoming: 'Próximos 7 días',
@@ -1061,7 +1093,7 @@ function openEventModal(event = null, date = null) {
   const readOnly = Boolean(event && !event.canEdit);
   form.dataset.readonly = String(readOnly);
   form.querySelectorAll('input, select, textarea').forEach((control) => { control.disabled = false; });
-  form.reset();
+  resetForm(form);
   form.elements.calendarId.innerHTML = availableCalendars
     .map((calendar) => `<option value="${calendar.id}">${escapeHtml(calendar.name)}</option>`)
     .join('');

@@ -11,7 +11,8 @@
     "create-admin": "node scripts/create-admin.js",
     "seed:demo": "node scripts/seed-demo.js",
     "backup": "node scripts/backup.js",
-    "restore": "node scripts/restore.js"
+    "restore": "node scripts/restore.js",
+    "check": "node scripts/check-persistencia.js"
   },
   "engines": {
     "node": ">=24 <25"

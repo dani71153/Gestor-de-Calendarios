@@ -260,6 +260,23 @@ Los [archivos adjuntos](#archivos-adjuntos) viajan dentro del snapshot, porque s
 
 `INTEGRATION_ENCRYPTION_KEY` no viaja en los snapshots, y sin ella los tokens de Google guardados dentro son indescifrables. Guarda una copia del `.env` **una sola vez** en un gestor de contraseñas o sobre físico, no junto a cada respaldo: la clave al lado de los datos que cifra anula el cifrado.
 
+### Comprobación de persistencia
+
+```powershell
+npm run check                                 # 60 actividades, 3 reinicios
+npm run check -- --eventos 100 --reinicios 4
+```
+
+Crea actividades por las ocho vías que admite la aplicación —simple, con responsable y recordatorio, con recurso y ubicación, serie recurrente, creada y editada, con adjunto, creada y cancelada, y con conflicto de horario—, cierra y reabre el servidor varias veces, y comprueba que nada cambie entre reinicios.
+
+Trabaja sobre una base temporal propia y arranca el servidor real por HTTP, así que **no toca la base de trabajo** ni necesita que el servidor esté levantado.
+
+Los cierres alternan entre normal y abrupto. El abrupto es el que importa: es donde SQLite tiene que recuperar el WAL, y donde se vería una pérdida por escritura a medias.
+
+Después de cada reinicio compara, campo a campo, todos los eventos leídos **del archivo con el servidor detenido**, más los totales de series, adjuntos, recordatorios, auditoría, usuarios, calendarios y recursos, y ejecuta `PRAGMA integrity_check`. También consulta la API para confirmar que la aplicación sirve lo que hay guardado, y vuelve a descargar cada adjunto comprobando que llega con su tamaño íntegro.
+
+Falla con código de salida distinto de cero si algo no cuadra, y también **si alguna de las ocho formas no llegó a ejercitarse**: un comprobante que silenciosamente hace menos de lo que dice es peor que no tenerlo.
+
 ### Scripts disponibles
 
 | Script | Para qué sirve |
@@ -272,6 +289,7 @@ Los [archivos adjuntos](#archivos-adjuntos) viajan dentro del snapshot, porque s
 | [`create-admin.js`](scripts/create-admin.js) | Crea o restablece una cuenta de Administrador. `npm run create-admin` |
 | [`backup.js`](scripts/backup.js) | Snapshot consistente con rotación. `npm run backup` |
 | [`restore.js`](scripts/restore.js) | Restaura desde un respaldo, verificándolo antes. `npm run restore` |
+| [`check-persistencia.js`](scripts/check-persistencia.js) | Carga actividades y reinicia el servidor verificando que nada se pierda. `npm run check` |
 | [`seed-demo.js`](scripts/seed-demo.js) | Carga los datos de demostración. `npm run seed:demo` |
 
 Acciones de `manage.ps1`: `status`, `start-server`, `stop-server`, `backup-db`, `restore-db`, `delete-db`, `reset-blank`, `seed-demo`, `create-admin`, `install-shortcut`, `install-backup-task`, `remove-backup-task` y `help`.

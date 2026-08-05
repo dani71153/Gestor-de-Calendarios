@@ -199,6 +199,11 @@ function registerEventRoutes(app, authMiddleware) {
       conditions.push('e.responsible_user_id = ?');
       params.push(Number(req.query.responsibleUserId));
     }
+    // Quién lo registró es una pregunta distinta de quién debe atenderlo.
+    if (req.query.createdBy) {
+      conditions.push('e.created_by = ?');
+      params.push(Number(req.query.createdBy));
+    }
     if (req.query.unassigned === 'true') {
       conditions.push('e.responsible_user_id IS NULL');
     }
