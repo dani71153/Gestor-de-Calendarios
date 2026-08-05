@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { validateProductionEnvironment } = require('../src/config');
+const { validateProductionEnvironment, resolveCookieSecure } = require('../src/config');
 const { AttemptLimiter } = require('../src/rate-limit');
 const { securityHeaders, requireSameOrigin } = require('../src/security');
 
@@ -154,7 +154,7 @@ test('producción bloquea una base que todavía conserva credenciales demo activ
   try {
     execFileSync(process.execPath, ['-e', command], {
       cwd,
-      env: { ...process.env, NODE_ENV: 'development', DATABASE_PATH: databasePath }
+      env: { ...process.env, NODE_ENV: 'development', SEED_MODE: 'demo', DATABASE_PATH: databasePath }
     });
     assert.throws(() => execFileSync(process.execPath, ['-e', command], {
       cwd,
@@ -171,6 +171,59 @@ test('producción bloquea una base que todavía conserva credenciales demo activ
         GOOGLE_REDIRECT_URI: ''
       }
     }), (error) => /Producción bloqueada/.test(String(error.stderr)));
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('la cookie usa Secure en producción salvo que COOKIE_SECURE lo desactive', () => {
+  assert.equal(resolveCookieSecure({ NODE_ENV: 'production' }), true);
+  assert.equal(resolveCookieSecure({ NODE_ENV: 'development' }), false);
+  // Habilita servir por HTTP plano en una red local sin abandonar el modo producción.
+  assert.equal(resolveCookieSecure({ NODE_ENV: 'production', COOKIE_SECURE: 'false' }), false);
+  assert.equal(resolveCookieSecure({ NODE_ENV: 'production', COOKIE_SECURE: '0' }), false);
+  assert.equal(resolveCookieSecure({ NODE_ENV: 'development', COOKIE_SECURE: 'true' }), true);
+  // Un valor sin sentido no debe relajar la seguridad por accidente.
+  assert.equal(resolveCookieSecure({ NODE_ENV: 'production', COOKIE_SECURE: 'quizas' }), true);
+});
+
+test('el arranque predeterminado deja la base sin usuarios, calendarios ni eventos', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'calendar-manager-blank-'));
+  const databasePath = path.join(tempDir, 'calendar.sqlite');
+  const script = [
+    "const { db, initializeDatabase } = require('./src/database');",
+    'initializeDatabase();',
+    "console.log('RESULT:' + JSON.stringify({",
+    "  users: db.prepare('SELECT COUNT(*) AS count FROM users').get().count,",
+    "  calendars: db.prepare('SELECT COUNT(*) AS count FROM calendars').get().count,",
+    "  events: db.prepare('SELECT COUNT(*) AS count FROM events').get().count,",
+    "  resources: db.prepare('SELECT COUNT(*) AS count FROM resources').get().count,",
+    "  roles: db.prepare('SELECT COUNT(*) AS count FROM roles').get().count",
+    '}));'
+  ].join('\n');
+  try {
+    const output = execFileSync(process.execPath, ['-e', script], {
+      cwd: path.resolve(__dirname, '..'),
+      encoding: 'utf8',
+      // Sin SEED_MODE ni INITIAL_ADMIN_*: es el arranque que ve un usuario nuevo.
+      env: {
+        ...process.env,
+        NODE_ENV: 'development',
+        SEED_MODE: '',
+        DATABASE_PATH: databasePath,
+        INITIAL_ADMIN_EMAIL: '',
+        INITIAL_ADMIN_PASSWORD: ''
+      }
+    });
+    const resultLine = output.split(/\r?\n/).find((line) => line.startsWith('RESULT:'));
+    const result = JSON.parse(resultLine.slice('RESULT:'.length));
+    assert.deepEqual(result, {
+      users: 0,
+      calendars: 0,
+      events: 0,
+      resources: 0,
+      roles: 4
+    });
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

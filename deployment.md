@@ -122,6 +122,7 @@ DATABASE_PATH=/opt/render/project/src/data/calendar-manager.sqlite
 SESSION_SECRET=<secreto-aleatorio-largo>
 INTEGRATION_ENCRYPTION_KEY=<secreto-aleatorio-independiente>
 DEFAULT_TIMEZONE=America/Santo_Domingo
+SEED_MODE=base
 
 INITIAL_ADMIN_NAME=Administrador
 INITIAL_ADMIN_EMAIL=admin@example.com
@@ -146,11 +147,11 @@ Los controles 5.1 a 5.9 ya están implementados en el código. La configuración
 
 ### 5.1 Eliminar credenciales demo
 
-Una base nueva solo crea usuarios demo en desarrollo.
+Una base nueva no crea usuarios demo en ningún entorno. Los datos de ejemplo son opcionales y se piden explícitamente con SEED_MODE=demo o `npm run seed:demo`.
 
-En producción el código ahora:
+En producción el código:
 
-- desactiva el seed demo;
+- rechaza el arranque si SEED_MODE=demo;
 - exige INITIAL_ADMIN_EMAIL e INITIAL_ADMIN_PASSWORD si la base está vacía;
 - crea un único Administrador inicial;
 - exige al menos 12 caracteres para su contraseña;
@@ -305,24 +306,28 @@ Preparar:
 
 ### 6.3 Audiencia
 
-Si todos los usuarios pertenecen a una misma organización de Google Workspace o Cloud Identity, puede configurarse como aplicación Internal.
+**Decisión adoptada:** audiencia External, publicada en producción, sin completar la verificación de Google. La integración se usa internamente con aproximadamente 10 personas, muy por debajo del tope de 100 usuarios que Google aplica a las aplicaciones sin verificar.
 
-Si los usuarios pertenecen a cuentas o dominios distintos:
+El paso obligatorio es pulsar **Publish app** para que el estado deje de ser Testing. No es por la pantalla de advertencia, que en uso interno resulta aceptable, sino por la caducidad de los tokens:
 
-- utilizar External;
-- mantener Testing durante el piloto;
-- registrar expresamente los usuarios de prueba;
-- solicitar verificación antes del lanzamiento general.
+- en Testing, las autorizaciones y los refresh tokens caducan a los siete días;
+- al vencer, `SyncService` recibe un error de refresco, marca la integración con `markError` y deja los eventos afectados en `sync_status = 'error'`;
+- el resultado sería que cada usuario tendría que reconectar su cuenta de Google todas las semanas;
+- en producción los refresh tokens dejan de caducar salvo revocación expresa o desuso prolongado.
 
-En Testing existe un máximo de 100 usuarios de prueba y las autorizaciones de usuarios de prueba caducan después de siete días.
+Los usuarios verán una vez la pantalla "Google hasn't verified this app" y deberán elegir **Advanced → Continue**. La autorización queda registrada; no se repite en cada sesión.
+
+Alternativa descartada por ahora: si la empresa adopta Google Workspace o Cloud Identity con dominio propio, la audiencia puede cambiarse a **Internal**, lo que elimina la advertencia, el tope de usuarios y cualquier trámite de verificación.
 
 Referencia: [Manage App Audience](https://support.google.com/cloud/answer/15549945).
 
 ### 6.4 Verificación
 
-El acceso a eventos de Google Calendar puede considerarse sensible. Una aplicación externa pública probablemente deberá completar la verificación de scopes sensibles.
+El scope solicitado, `https://www.googleapis.com/auth/calendar.events`, está clasificado como sensible. Con la audiencia External descrita en 6.3, la verificación **no es necesaria** mientras el uso siga siendo interno y por debajo del tope de usuarios.
 
-Google solicita, entre otros elementos:
+Al publicar, Google puede solicitar la URL de la página principal y la política de privacidad. Son campos del formulario de verificación: basta con páginas simples en el propio dominio para guardar y publicar sin completar el proceso.
+
+La verificación pasaría a ser obligatoria si la aplicación se abre a usuarios ajenos a la empresa o si se supera el tope de usuarios. En ese caso Google solicita, entre otros elementos:
 
 - dominio verificado;
 - política de privacidad;
@@ -330,7 +335,7 @@ Google solicita, entre otros elementos:
 - video de demostración;
 - credenciales o instrucciones para que el equipo revisor pruebe el flujo.
 
-Debe reservarse tiempo para este proceso antes del lanzamiento.
+Debe reservarse tiempo para ese proceso antes de un lanzamiento externo.
 
 Referencia: [Sensitive Scope Verification](https://developers.google.com/identity/protocols/oauth2/production-readiness/sensitive-scope-verification).
 
@@ -477,7 +482,34 @@ Referencias:
 
 La opción VPS requiere que el equipo sea responsable de parches, firewall, Docker, almacenamiento, copias y recuperación.
 
-### 10.3 Plataformas que deben evitarse para el estado actual
+### 10.3 Servidor en la red local de la empresa
+
+No es obligatorio publicar la aplicación en internet. Sí es obligatorio servirla por HTTPS bajo un dominio público, por dos motivos independientes:
+
+- Google exige que el redirect URI use HTTPS y un dominio público válido;
+- `auth.js` marca la cookie de sesión como `Secure` cuando `NODE_ENV=production`, de modo que el navegador no la enviaría por HTTP plano y el login fallaría. `COOKIE_SECURE=false` desactiva ese atributo para una red local de confianza, sin renunciar al resto del endurecimiento de producción; el servidor lo advierte en consola al arrancar.
+
+Google nunca abre una conexión hacia el servidor. El flujo de autorización ocurre en el navegador del usuario: navegador → Google → navegador → servidor. Quien debe alcanzar el servidor es el navegador, no Google. El servidor solo necesita salida a internet para solicitar los tokens.
+
+Esto habilita dos variantes con el servidor dentro de la oficina:
+
+**Túnel inverso (recomendada).** Un conector tipo Cloudflare Tunnel publica el servicio por HTTPS con un nombre propio sin abrir puertos entrantes en el firewall. Es la variante con menos piezas que mantener y funciona también para quien trabaje fuera de la oficina.
+
+**Dominio propio con DNS interno.** Certificado emitido por desafío DNS-01, que no requiere exponer el servidor, y un registro DNS interno que resuelva el subdominio hacia la IP privada del servidor. El acceso queda restringido a la red local o a quien entre por VPN, a cambio de mantener la renovación de certificados y la zona DNS interna.
+
+Configuraciones que Google rechaza como redirect URI, y que por tanto no sirven:
+
+| Valor | Motivo |
+| --- | --- |
+| `http://192.168.1.50:3000` | Google no acepta direcciones IP privadas ni HTTP |
+| `https://servidor.local` | `.local` no es un TLD público válido |
+| `http://localhost:3000` | Aceptado, pero solo sirve en la propia máquina del desarrollador |
+
+Con un túnel o proxy delante, la aplicación debe leer `X-Forwarded-Proto` para que `req.protocol` valga `https`; de lo contrario `requireSameOrigin` compararía contra un origen `http://` y rechazaría toda mutación. `server.js` ya activa `trust proxy` cuando `NODE_ENV=production`.
+
+Si se renuncia a la integración con Google Calendar, ninguna de estas restricciones aplica y la aplicación puede servirse por HTTP en la red local.
+
+### 10.4 Plataformas que deben evitarse para el estado actual
 
 No desplegar directamente sobre una plataforma con filesystem efímero y ejecución serverless si SQLite continúa siendo la base principal.
 

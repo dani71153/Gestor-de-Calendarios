@@ -65,7 +65,7 @@ function constantTimeEqual(left, right) {
 }
 
 function sessionCookie(token, maxAge) {
-  const secure = config.isProduction ? '; Secure' : '';
+  const secure = config.cookieSecure ? '; Secure' : '';
   return 'session=' + token + '; HttpOnly; SameSite=Lax; Path=/; Max-Age=' + maxAge + secure;
 }
 

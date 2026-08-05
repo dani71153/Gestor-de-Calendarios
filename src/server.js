@@ -58,6 +58,12 @@ app.use((error, req, res, next) => {
 
 const server = app.listen(config.port, () => {
   console.log(`Gestor de Calendarios disponible en http://localhost:${config.port}`);
+  if (config.isProduction && !config.cookieSecure) {
+    console.warn(
+      'COOKIE_SECURE=false: la cookie de sesión viaja sin el atributo Secure. '
+      + 'Úsalo solo en una red local de confianza y quítalo al servir por HTTPS.'
+    );
+  }
 });
 startReminderScheduler();
 

@@ -7,6 +7,7 @@ Primera versión funcional del MVP descrito en `design_gestor_calendarios.md`.
 - [`MANUAL_USUARIO.md`](MANUAL_USUARIO.md): uso diario, roles, administración y resolución de problemas.
 - [`TECHNICAL.md`](TECHNICAL.md): arquitectura y referencia técnica.
 - [`deployment.md`](deployment.md): preparación y publicación en producción.
+- [`docs/adr/`](docs/adr/): registro de decisiones de arquitectura y por qué se tomaron.
 
 ## Requisitos
 
@@ -15,6 +16,8 @@ Primera versión funcional del MVP descrito en `design_gestor_calendarios.md`.
 
 ## Instalación y ejecución
 
+Para desarrollo:
+
 ```bash
 npm install
 npm start
@@ -22,16 +25,171 @@ npm start
 
 La aplicación estará disponible en <http://localhost:3000>.
 
-En desarrollo, una base vacía carga estas cuentas de demostración:
+La base de datos SQLite se crea automáticamente en `data/calendar-manager.sqlite`.
 
-- Correo: `admin@empresa.com`
-- Contraseña: `Demo123!`
+Para instalar en el equipo de una persona que va a usar la aplicación, sin pasos manuales, consulta [Instalación en un PC nuevo](#instalación-en-un-pc-nuevo).
 
-Las cuentas `supervisor@empresa.com`, `reservas@empresa.com` y `ventas@empresa.com` usan la misma contraseña y permiten comprobar los diferentes alcances de permisos.
+## Datos iniciales
 
-El modo producción no crea estas cuentas. Una base vacía exige `INITIAL_ADMIN_EMAIL` e `INITIAL_ADMIN_PASSWORD` para crear un único Administrador inicial; la contraseña debe tener al menos 12 caracteres.
+Una base vacía arranca **sin usuarios, calendarios ni eventos** en cualquier entorno. Lo que se crea depende de `SEED_MODE`:
 
-La base de datos SQLite se crea automáticamente en `data/calendar-manager.sqlite` y se carga con calendarios, usuarios y eventos de prueba.
+| `SEED_MODE` | Qué crea |
+| --- | --- |
+| `blank` | Solo los cuatro roles del sistema. |
+| `base` (predeterminado) | Roles, departamentos y tipos de evento. |
+| `demo` | Lo anterior más usuarios, calendarios, eventos y recursos de ejemplo. Rechazado con `NODE_ENV=production`. |
+
+El único usuario que se crea de forma automática es el Administrador inicial, y solo si defines `INITIAL_ADMIN_EMAIL` e `INITIAL_ADMIN_PASSWORD` (mínimo 12 caracteres). En producción son obligatorios; sin ellos el arranque falla. En desarrollo, si no los defines, el servidor avisa de que la base quedó sin usuarios.
+
+También puedes crear o recuperar el acceso sin variables de entorno:
+
+```bash
+npm run create-admin -- --email admin@tu-dominio.com --password "una-contraseña-larga" --name "Nombre"
+npm run create-admin -- --email admin@tu-dominio.com --password "nueva-contraseña" --force   # restablece el acceso
+```
+
+Para trabajar con datos de ejemplo sobre una base recién borrada:
+
+```bash
+npm run seed:demo   # crea admin@empresa.com / Demo123! y datos de prueba
+```
+
+## Uso local sin integración de Google
+
+La aplicación funciona por completo sin Google Calendar. Solo depende de `express`; el resto son módulos nativos de Node y la base es un único archivo SQLite. Si no hay credenciales configuradas, las rutas de integración responden `503` y los eventos permanecen en `sync_status = 'not_synced'`. Calendarios, eventos, series, permisos, reportes y recordatorios no se ven afectados.
+
+Esto permite instalarlo en un PC de la oficina mientras se resuelve el alojamiento definitivo. `.env` para ese caso:
+
+```env
+NODE_ENV=production
+COOKIE_SECURE=false
+PORT=3000
+DATABASE_PATH=./data/calendar-manager.sqlite
+SESSION_SECRET=<32+ caracteres aleatorios>
+INTEGRATION_ENCRYPTION_KEY=<otros 32+ caracteres, distintos>
+DEFAULT_TIMEZONE=America/Santo_Domingo
+SEED_MODE=base
+```
+
+`COOKIE_SECURE=false` es necesario porque en producción la cookie de sesión lleva el atributo `Secure` y el navegador no la enviaría por HTTP plano. Al pasar a HTTPS hay que quitar esa línea. El servidor advierte en consola mientras esté activa.
+
+Para generar los secretos:
+
+```powershell
+node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"
+```
+
+Después, crea la cuenta con `npm run create-admin` y arranca con `npm start` o `.\scripts\manage.ps1 -Action start-server`.
+
+### Acceso directo de escritorio
+
+Para que la aplicación se abra con doble clic, sin terminal:
+
+```powershell
+.\scripts\install-shortcut.ps1            # solo escritorio
+.\scripts\install-shortcut.ps1 -Startup   # además, al iniciar sesión en Windows
+.\scripts\install-shortcut.ps1 -Remove    # eliminar los accesos directos
+```
+
+El acceso directo ejecuta `scripts/start-app.ps1`, que levanta el servidor sin ventana de consola, espera a que `/api/health` responda y abre el navegador. Si el servidor ya estaba activo solo abre el navegador, así que pulsarlo dos veces no crea un segundo proceso sobre el mismo archivo SQLite.
+
+Cuando algo falla muestra un cuadro de diálogo en lugar de un error en consola: Node.js ausente, dependencias sin instalar o el servidor que no responde en el puerto configurado.
+
+#### Limitaciones conocidas
+
+- **El icono es el de Node.js.** El proyecto no incluye un `.ico`, y Windows no acepta el `public/favicon.svg` en accesos directos. Para cambiarlo, edita la propiedad `IconLocation` en [`scripts/install-shortcut.ps1`](scripts/install-shortcut.ps1) apuntando a un archivo `.ico` propio.
+- **Hay un parpadeo breve de consola al arrancar.** El acceso directo se crea en modo minimizado y PowerShell se invoca oculto, que es lo máximo alcanzable sin recurrir a VBScript, tecnología en proceso de retirada en Windows 11.
+
+Ambas desaparecerían empaquetando con Electron, pendiente en [Mejoras a futuro](#mejoras-a-futuro).
+
+### Instalación en un PC nuevo
+
+Con Node.js 24.x ya instalado, un único comando deja el equipo listo:
+
+```powershell
+.\scripts\install.ps1
+```
+
+Ejecuta cinco pasos y pregunta solo lo que no puede deducir:
+
+1. comprueba que Node.js existe y que su versión es 24 o superior, requisito del módulo `node:sqlite`;
+2. instala las dependencias con `npm install`;
+3. crea el `.env` con `SESSION_SECRET` e `INTEGRATION_ENCRYPTION_KEY` generados aleatoriamente;
+4. pide correo, contraseña (dos veces, oculta) y nombre, y crea la cuenta de Administrador;
+5. crea el acceso directo, preguntando si debe abrirse al iniciar sesión en Windows.
+
+**Es re-ejecutable.** No sobrescribe un `.env` existente ni toca la base de datos. Si la cuenta ya existe, pregunta antes de restablecer su contraseña.
+
+Para instalación desatendida, sin preguntas:
+
+```powershell
+.\scripts\install.ps1 -Email admin@empresa.com -Password "clave-de-12-o-mas" -Startup
+```
+
+Otros parámetros: `-Name`, `-Port`, `-Timezone` y `-SkipShortcut`.
+
+La contraseña se pasa a `create-admin.js` mediante variables de entorno y no como argumento, para que no quede visible en la lista de procesos del sistema.
+
+Conserva `INTEGRATION_ENCRYPTION_KEY` fuera del equipo: si se pierde en una reinstalación, los tokens cifrados en la base dejan de ser descifrables y las cuentas de Google conectadas deben volver a autorizarse.
+
+#### Instalación manual
+
+Si prefieres hacerlo paso a paso, el script equivale a:
+
+```powershell
+npm install                                                    # requiere internet una sola vez
+# crear .env con el contenido indicado más arriba
+npm run create-admin -- --email usuario@empresa.com --password "clave-de-12-o-mas"
+.\scripts\install-shortcut.ps1 -Startup
+```
+
+### Desinstalar
+
+```powershell
+.\scripts\uninstall.ps1
+```
+
+Por omisión hace solo lo reversible: detiene el servidor, elimina los accesos directos y borra `node_modules`. **La base de datos y el `.env` se conservan** salvo que se pidan expresamente, y en modo interactivo hay que escribir `ELIMINAR` para confirmar el borrado de la base.
+
+Antes de borrar la base guarda una copia —incluyendo el `.env`— en `Documentos\gestor-calendarios-respaldo-<fecha>`, fuera de la carpeta del proyecto, para que sobreviva aunque después borres la carpeta entera.
+
+```powershell
+.\scripts\uninstall.ps1 -RemoveData -RemoveEnv -Force   # desatendido, borra todo
+.\scripts\uninstall.ps1 -KeepModules                    # conserva node_modules
+.\scripts\uninstall.ps1 -RemoveData -NoBackup           # sin copia de seguridad
+```
+
+`-Force` implica modo desatendido: no pregunta nada, y por tanto **no borra datos** a menos que se lo indiques con `-RemoveData` o `-RemoveEnv`.
+
+No desinstala Node.js ni borra la carpeta del proyecto. Los accesos directos viven en el perfil del usuario de Windows, así que se eliminan aunque ejecutes el script desde una copia del proyecto situada en otra ruta.
+
+### Scripts disponibles
+
+| Script | Para qué sirve |
+| --- | --- |
+| [`install.ps1`](scripts/install.ps1) | Instalación completa en un PC nuevo. Re-ejecutable. |
+| [`uninstall.ps1`](scripts/uninstall.ps1) | Desinstala. Conserva datos salvo que se pidan borrar. |
+| [`manage.ps1`](scripts/manage.ps1) | Menú de administración: estado, arranque, respaldos, borrado y siembra. También por `-Action`. |
+| [`start-app.ps1`](scripts/start-app.ps1) | Arranca el servidor sin consola y abre el navegador. Lo invoca el acceso directo. |
+| [`install-shortcut.ps1`](scripts/install-shortcut.ps1) | Crea o elimina el acceso directo del escritorio y el de inicio de Windows. |
+| [`create-admin.js`](scripts/create-admin.js) | Crea o restablece una cuenta de Administrador. `npm run create-admin` |
+| [`seed-demo.js`](scripts/seed-demo.js) | Carga los datos de demostración. `npm run seed:demo` |
+
+Acciones de `manage.ps1`: `status`, `start-server`, `stop-server`, `backup-db`, `delete-db`, `reset-blank`, `seed-demo`, `create-admin`, `install-shortcut` y `help`.
+
+#### Nota al editar los scripts de PowerShell
+
+Los `.ps1` deben guardarse en **UTF-8 con BOM y saltos de línea CRLF**. Windows PowerShell 5.1 interpreta como ANSI cualquier archivo sin BOM, y entonces las mayúsculas acentuadas rompen el parseo: `Ó` en UTF-8 son los bytes `0xC3 0x93`, y leídos como ANSI producen `Ã` más `"` tipográfica, que PowerShell trata como delimitador de cadena. Los here-strings (`@"…"@`) fallan además con saltos LF, por lo que conviene evitarlos y construir el texto multilínea como array.
+
+Para comprobar un script sin ejecutarlo:
+
+```powershell
+$err = $null
+[System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path .\scripts\install.ps1).Path, [ref]$null, [ref]$err)
+$err
+```
+
+Si otras personas de la red van a conectarse, accederán a `http://<ip-del-pc>:3000` y ese PC debe permanecer encendido. La base de datos vivirá únicamente en esa máquina: programa respaldos con `.\scripts\manage.ps1 -Action backup-db` y cópialos fuera del equipo.
 
 ## Preparación para producción
 
@@ -64,6 +222,7 @@ Después del primer inicio de producción, cambia la contraseña del Administrad
 - Detección de conflictos por responsable, ubicación, sala o recurso.
 - Recordatorios por evento y centro de notificaciones internas.
 - Lectura, eliminación individual y limpieza completa de notificaciones.
+- Contador de notificaciones sin leer en el título y el icono de la pestaña.
 - Marcado automático de eventos vencidos.
 - Auditoría de cambios en la base de datos.
 - Administración de usuarios, roles, departamentos, estados y asignación de múltiples calendarios.
@@ -125,7 +284,32 @@ Comprueba además que:
 
 Google limita las aplicaciones externas en estado Testing a los usuarios incluidos expresamente en la lista de testers. Como la aplicación solicita el scope `https://www.googleapis.com/auth/calendar.events`, los refresh tokens emitidos durante las pruebas normalmente caducan después de siete días y puede ser necesario reconectar la cuenta. Consulta la documentación oficial sobre [audiencias OAuth](https://support.google.com/cloud/answer/15549945) y [expiración de refresh tokens](https://developers.google.com/identity/protocols/oauth2#expiration).
 
-Para desarrollo local se recomienda conservar el estado Testing y registrar las cuentas necesarias como testers. Antes de abrir la integración a usuarios no registrados, cambia el proyecto a producción y completa la verificación que Google solicite para los scopes utilizados.
+Para desarrollo local se recomienda conservar el estado Testing y registrar las cuentas necesarias como testers.
+
+### Publicar la integración para uso interno
+
+Para el uso real en la empresa la decisión adoptada es **audiencia External publicada en producción, sin verificar**. Con alrededor de 10 usuarios se está muy por debajo del tope de 100 que Google aplica a las aplicaciones sin verificación, y la advertencia de "app no verificada" resulta aceptable en un contexto interno.
+
+Publicar no es opcional aunque la advertencia no moleste: **en Testing los refresh tokens caducan a los siete días**, y al vencer la integración queda marcada con error y los eventos en `sync_status = 'error'`, obligando a cada usuario a reconectar su cuenta cada semana.
+
+1. Crea un proyecto de Google Cloud dedicado a producción, distinto del de pruebas.
+2. Habilita **Google Calendar API**.
+3. En **Google Auth Platform → Branding**, define nombre de la aplicación, correo de soporte y correo del desarrollador.
+4. En **Audience**, deja **External** y pulsa **Publish app**. El estado debe quedar en *In production*. Si Google pide página principal y política de privacidad, bastan páginas simples en tu propio dominio.
+5. En **Credentials**, crea un *OAuth client ID* de tipo **Web application** y registra el redirect URI definitivo:
+
+   ```text
+   https://tu-dominio.com/api/integrations/google/callback
+   ```
+
+6. Configura ese Client ID y Client Secret desde **Integraciones → Configurar integración**, o mediante `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` y `GOOGLE_REDIRECT_URI`.
+7. Cada usuario conecta su cuenta y pasa una sola vez por **Advanced → Continue**.
+
+El redirect URI necesita el dominio definitivo con HTTPS, así que conviene resolver primero el alojamiento y solo después registrarlo en Google. Consulta [`deployment.md` §6.3](deployment.md) y [§10.3](deployment.md) para las opciones, incluida la de mantener el servidor dentro de la oficina mediante un túnel inverso.
+
+Si la empresa adopta Google Workspace con dominio propio, la audiencia puede cambiarse a **Internal**, lo que elimina la advertencia, el tope de usuarios y todo trámite de verificación.
+
+Conserva `INTEGRATION_ENCRYPTION_KEY` junto con los respaldos: sin ella los refresh tokens cifrados en la base dejan de ser descifrables y todos los usuarios deberán reconectar.
 
 El Client Secret se envía una sola vez al backend, se cifra con AES-256-GCM y nunca se devuelve al navegador. Dejar el campo vacío al editar conserva el secreto existente. Solo el rol Administrador puede consultar o modificar esta configuración.
 
@@ -166,7 +350,45 @@ En **Configuración → Canales externos** se pueden activar adaptadores webhook
 
 El push del navegador se habilita con **Autorizar este navegador**. Esta implementación muestra notificaciones del sistema mientras la aplicación está abierta; no requiere claves VAPID. Con el modo desarrollador activo, los botones de prueba validan el centro interno, el push y los webhooks configurados.
 
+### Indicador en la pestaña del navegador
+
+Las notificaciones sin leer se reflejan en la propia pestaña, sin necesidad de tener la aplicación en primer plano:
+
+| Sin leer | Pestaña |
+| --- | --- |
+| 0 | `Gestor Central de Calendarios`, con el icono normal |
+| 3 | `(3) Gestor Central de Calendarios`, con un punto rojo sobre el icono |
+| más de 99 | `(99+) Gestor Central de Calendarios` |
+
+La cifra va en el título y no en el icono porque a 16×16 píxeles un número resulta ilegible: el punto solo señala que hay algo pendiente.
+
+El sondeo continúa mientras la pestaña está en segundo plano, que es justamente cuando el indicador sirve, aunque espaciado a tres minutos en lugar de uno para no cargar al servidor sin motivo. Al volver a la pestaña se refresca de inmediato.
+
+**Al cambiar el icono hay que tocar dos archivos.** El SVG está duplicado en la constante `FAVICON_BODY` de [`public/app.js`](public/app.js), porque el punto de aviso se compone sobre él y se aplica como `data:` URI sin una petición adicional. Si editas [`public/favicon.svg`](public/favicon.svg), replica el cambio en esa constante o el icono cambiará solo mientras no haya notificaciones pendientes.
+
 ## Pendiente
+
+### Decisiones de despliegue
+
+- **Elegir alojamiento.** Las opciones evaluadas están en [`deployment.md` §10](deployment.md): túnel inverso con el servidor en la oficina (recomendada), dominio propio con DNS interno, o hosting público. La integración de Google exige HTTPS con dominio público en cualquiera de los tres casos; sin esa integración la aplicación puede servirse por HTTP en la red local.
+- **Publicar el proyecto OAuth en producción** antes de repartir la integración, para evitar la caducidad de refresh tokens a los siete días.
+- **Verificar `trust proxy` detrás del túnel elegido.** `server.js` ya lo activa en producción; falta comprobar sobre el proxy real que `req.protocol` valga `https` y que `requireSameOrigin` no rechace las mutaciones.
+- **Generar los secretos definitivos** (`SESSION_SECRET`, `INTEGRATION_ENCRYPTION_KEY`) y definir dónde se respaldan.
+
+### Funcionalidad
 
 - Participantes, invitaciones y confirmación de asistencia.
 - Consulta visual del registro de auditoría y actividad.
+
+### Mejoras a futuro
+
+- **Empaquetar con Electron.** Descartado por ahora en favor del enfoque BYOB: ver [ADR 001](docs/adr/001-byob-frente-a-electron.md), que recoge el razonamiento completo y las condiciones bajo las que conviene reconsiderarlo. Sustituiría el acceso directo por una aplicación con ventana propia, icono e instalador, eliminando el parpadeo de consola. Requiere resolver tres puntos del código, que hoy asumen que el proyecto se ejecuta desde su carpeta de origen:
+  - [`config.js:4`](src/config.js#L4) — `rootDir` se calcula desde `__dirname`, que empaquetado apunta dentro del `asar`, de solo lectura.
+  - [`config.js:86`](src/config.js#L86) — `databasePath` se resuelve relativo a `rootDir`; instalado en `Program Files` fallaría por permisos. Debe apuntar a `app.getPath('userData')`.
+  - [`config.js:5-9`](src/config.js#L5-L9) — el `.env` se lee desde `rootDir` y no existirá empaquetado; la configuración debe inyectarse como variables de entorno desde el proceso principal.
+
+  Los tres se resuelven en el `main.js` de Electron, definiendo las variables antes de requerir el servidor. Un instalador sin firma digital dispara el aviso de SmartScreen de Windows, aceptable en uso interno. Electron no cambia la arquitectura: si otras personas se conectan, ese PC sigue siendo el servidor.
+- Añadir un `.ico` propio para el acceso directo y para el eventual instalador.
+- Migrar la audiencia OAuth a **Internal** si la empresa adopta Google Workspace con dominio propio.
+- Completar la verificación de scopes sensibles solo si la integración llega a abrirse a usuarios externos a la empresa.
+- Sustituir SQLite por PostgreSQL si se requiere concurrencia o alta disponibilidad, según [`deployment.md` §11](deployment.md).

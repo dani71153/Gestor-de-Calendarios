@@ -295,7 +295,13 @@ PRAGMA journal_mode = WAL;
 
 El esquema se crea con IF NOT EXISTS. Algunas columnas se agregan mediante PRAGMA table_info y ALTER TABLE. No existe un sistema de migraciones versionadas.
 
-El bootstrap solo se ejecuta si no existen usuarios. En desarrollo carga datos demo. En producción crea catálogos básicos y un único Administrador desde `INITIAL_ADMIN_*`, sin calendarios, eventos, recursos ni cuentas demo. La configuración predeterminada se completa de forma idempotente.
+El bootstrap solo actúa sobre la tabla de usuarios si está vacía y se controla con `SEED_MODE` (`blank`, `base` o `demo`; predeterminado `base`), sin depender de `NODE_ENV`.
+
+- `blank`: crea únicamente los cuatro roles, que `authorization.js` compara por nombre.
+- `base`: agrega departamentos y tipos de evento.
+- `demo`: agrega usuarios, calendarios, eventos, permisos y recursos de ejemplo. `config.js` rechaza este modo cuando `NODE_ENV=production`.
+
+En `blank` y `base` el único usuario creado es el Administrador definido por `INITIAL_ADMIN_EMAIL` e `INITIAL_ADMIN_PASSWORD`. Si faltan, en producción el arranque falla y en desarrollo la base queda sin usuarios con un aviso en consola. `scripts/create-admin.js` cubre el mismo caso desde la línea de comandos. La configuración predeterminada se completa de forma idempotente.
 
 ## 8. Gobierno y acceso a calendarios
 
@@ -663,7 +669,7 @@ npm start
 
 La aplicación se publica en http://localhost:3000 salvo que se cambie PORT.
 
-En desarrollo, una base nueva crea cuentas demo con contraseña Demo123!. En producción esas cuentas no existen: `INITIAL_ADMIN_EMAIL` y `INITIAL_ADMIN_PASSWORD` son obligatorios al inicializar una base vacía.
+Una base nueva no crea cuentas demo en ningún entorno. Para trabajar con datos de ejemplo se usa `npm run seed:demo` o `SEED_MODE=demo`, que crea admin@empresa.com con contraseña Demo123!. `INITIAL_ADMIN_EMAIL` y `INITIAL_ADMIN_PASSWORD` son obligatorios al inicializar una base vacía en producción.
 
 ## 19. Operación y respaldo
 

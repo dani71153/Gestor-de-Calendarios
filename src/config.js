@@ -11,6 +11,31 @@ if (fs.existsSync(envPath)) {
 const nodeEnv = process.env.NODE_ENV || 'development';
 const isProduction = nodeEnv === 'production';
 
+// Modos de arranque de datos. El predeterminado deja la base sin usuarios,
+// calendarios ni eventos: los datos de demostración solo se cargan si se piden.
+const SEED_MODES = ['blank', 'base', 'demo'];
+
+function resolveSeedMode(env = process.env) {
+  const requested = String(env.SEED_MODE || 'base').trim().toLowerCase();
+  if (!SEED_MODES.includes(requested)) {
+    throw new Error(`SEED_MODE inválido: "${requested}". Valores admitidos: ${SEED_MODES.join(', ')}`);
+  }
+  if (requested === 'demo' && (env.NODE_ENV || 'development') === 'production') {
+    throw new Error('SEED_MODE=demo no está permitido en producción');
+  }
+  return requested;
+}
+
+// La cookie de sesión lleva el atributo Secure en producción. COOKIE_SECURE=false
+// lo desactiva para servir por HTTP plano en una red local de confianza, donde no
+// hay certificado y el navegador descartaría la cookie dejando el login inservible.
+function resolveCookieSecure(env = process.env) {
+  const requested = String(env.COOKIE_SECURE || '').trim().toLowerCase();
+  if (requested === 'false' || requested === '0') return false;
+  if (requested === 'true' || requested === '1') return true;
+  return (env.NODE_ENV || 'development') === 'production';
+}
+
 function isUnsafeSecret(value = '') {
   const normalized = String(value).trim().toLowerCase();
   return normalized.length < 32
@@ -55,6 +80,8 @@ if (productionErrors.length) {
 module.exports = {
   nodeEnv,
   isProduction,
+  seedMode: resolveSeedMode(),
+  cookieSecure: resolveCookieSecure(),
   port: Number(process.env.PORT || 3000),
   databasePath: path.resolve(rootDir, process.env.DATABASE_PATH || 'data/calendar-manager.sqlite'),
   sessionSecret: process.env.SESSION_SECRET || 'development-only-secret',
@@ -75,3 +102,6 @@ module.exports = {
 
 module.exports.validateProductionEnvironment = validateProductionEnvironment;
 module.exports.isUnsafeSecret = isUnsafeSecret;
+module.exports.resolveSeedMode = resolveSeedMode;
+module.exports.resolveCookieSecure = resolveCookieSecure;
+module.exports.SEED_MODES = SEED_MODES;

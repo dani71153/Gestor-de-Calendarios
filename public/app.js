@@ -328,7 +328,41 @@ async function showBrowserPush(notifications) {
   localStorage.setItem('pushedNotificationIds', JSON.stringify([...seen].slice(-100)));
 }
 
+// Título original, capturado antes de anteponerle ningún contador.
+const BASE_DOCUMENT_TITLE = document.title;
+
+// Réplica de public/favicon.svg sin la etiqueta de cierre, para poder añadirle
+// el punto de aviso antes de cerrarla. Si cambia el icono, cambia también aquí.
+const FAVICON_BODY = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+  + '<rect width="64" height="64" rx="14" fill="#202827"/>'
+  + '<path d="M18 20h28v26H18z" fill="none" stroke="#fff" stroke-width="4"/>'
+  + '<path d="M18 28h28M25 15v10M39 15v10" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="square"/>'
+  + '<path d="M26 35h5v5h-5zM35 35h5v5h-5z" fill="#7791e5"/>';
+
+// A 16x16 píxeles un número sería ilegible: el icono solo indica que hay algo
+// pendiente y la cifra exacta va en el título de la pestaña.
+const FAVICON_DOT = '<circle cx="47" cy="17" r="14" fill="#202827"/>'
+  + '<circle cx="47" cy="17" r="10" fill="#e5484d"/>';
+
+function faviconDataUri(hasUnread) {
+  const svg = FAVICON_BODY + (hasUnread ? FAVICON_DOT : '') + '</svg>';
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+// Refleja las notificaciones sin leer en la pestaña del navegador, para que se
+// vean sin tener la aplicación en primer plano.
+function renderTabBadge() {
+  const unread = state.unreadNotifications;
+  const label = unread > 99 ? '99+' : unread;
+
+  document.title = unread > 0 ? `(${label}) ${BASE_DOCUMENT_TITLE}` : BASE_DOCUMENT_TITLE;
+
+  const icon = $('#favicon');
+  if (icon) icon.href = faviconDataUri(unread > 0);
+}
+
 function renderNotifications() {
+  renderTabBadge();
   const badge = $('#notification-badge');
   badge.textContent = state.unreadNotifications > 99 ? '99+' : state.unreadNotifications;
   badge.hidden = state.unreadNotifications === 0;
@@ -1539,6 +1573,25 @@ document.addEventListener('keydown', (event) => {
 });
 
 bootstrap();
-setInterval(() => {
-  if (state.user && !document.hidden) loadNotifications().catch(() => {});
-}, 60000);
+
+// El contador de la pestaña sirve precisamente cuando la aplicación no está en
+// primer plano, así que en segundo plano se sigue consultando, solo que con
+// menos frecuencia para no cargar al servidor sin motivo.
+const NOTIFICATION_POLL_VISIBLE_MS = 60000;
+const NOTIFICATION_POLL_HIDDEN_MS = 180000;
+let lastNotificationPoll = Date.now();
+
+function pollNotifications(force = false) {
+  if (!state.user) return;
+  const wait = document.hidden ? NOTIFICATION_POLL_HIDDEN_MS : NOTIFICATION_POLL_VISIBLE_MS;
+  if (!force && Date.now() - lastNotificationPoll < wait) return;
+  lastNotificationPoll = Date.now();
+  loadNotifications().catch(() => {});
+}
+
+setInterval(() => pollNotifications(), 30000);
+
+// Al volver a la pestaña, el contador debe estar al día de inmediato.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) pollNotifications(true);
+});

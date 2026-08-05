@@ -16,11 +16,15 @@ function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
   return `${salt}:${hash}`;
 }
 
-// seed: 'auto' aplica el comportamiento normal del servidor (demo en desarrollo,
-// administrador inicial en producción); 'base' crea solo roles, departamentos y
-// tipos de evento; 'none' deja la base vacía y lista para poblarse manualmente.
+// Modos de arranque de datos (options.seed o la variable SEED_MODE):
+//   'blank' -> solo los roles que el código necesita para autorizar.
+//   'base'  -> roles, departamentos y tipos de evento. Es el predeterminado.
+//   'demo'  -> 'base' más usuarios, calendarios, eventos y recursos de ejemplo.
+// En 'blank' y 'base' no se crea ningún usuario salvo el administrador inicial
+// definido en INITIAL_ADMIN_EMAIL / INITIAL_ADMIN_PASSWORD.
 function initializeDatabase(options = {}) {
-  const seed = options.seed || 'auto';
+  const seed = normalizeSeedMode(options.seed);
+  const silent = options.silent === true;
   db.exec(`
     CREATE TABLE IF NOT EXISTS roles (
       id INTEGER PRIMARY KEY,
@@ -297,19 +301,38 @@ function initializeDatabase(options = {}) {
     SET sync_status = 'not_synced'
     WHERE sync_status = 'synced' AND google_event_id IS NULL;
   `);
-  if (seed === 'auto') {
-    seedDatabase();
-    if (!config.isProduction) {
-      ensureDemoPermissions();
-      ensureDefaultResources();
-    }
-  } else if (seed === 'base') {
+  if (seed === 'demo') {
     seedBaseCatalogs();
+    seedDemoData();
+    ensureDemoPermissions();
+    ensureDefaultResources();
+  } else {
+    if (seed === 'base') {
+      seedBaseCatalogs();
+    } else {
+      seedRoles();
+    }
+    // skipInitialAdmin lo usa create-admin.js, que gestiona la cuenta por su
+    // cuenta y necesita distinguir si ya existía antes de tocar nada.
+    if (!options.skipInitialAdmin) seedInitialAdmin({ silent });
   }
   if (config.isProduction) {
     assertNoActiveDemoCredentials();
   }
   ensureDefaultSettings();
+}
+
+// Acepta los alias históricos ('auto', 'none') para no romper llamadas antiguas.
+function normalizeSeedMode(requested) {
+  if (!requested || requested === 'auto') return config.seedMode;
+  if (requested === 'none') return 'blank';
+  if (!['blank', 'base', 'demo'].includes(requested)) {
+    throw new Error(`Modo de siembra inválido: "${requested}"`);
+  }
+  if (requested === 'demo' && config.isProduction) {
+    throw new Error('El modo de siembra "demo" no está permitido en producción');
+  }
+  return requested;
 }
 
 function ensureColumn(table, column, definition) {
@@ -319,13 +342,19 @@ function ensureColumn(table, column, definition) {
   }
 }
 
-// Catálogos mínimos para que la aplicación funcione sin datos de demostración.
-// Es idempotente y no abre transacción propia para poder reutilizarse dentro de otra.
-function seedBaseCatalogs() {
+// Los roles no son datos de ejemplo: authorization.js compara contra estos nombres,
+// así que existen en todos los modos de arranque.
+function seedRoles() {
   const insertRole = db.prepare('INSERT OR IGNORE INTO roles (name, description) VALUES (?, ?)');
   ['Administrador', 'Supervisor', 'Empleado', 'Consulta'].forEach((roleName) => {
     insertRole.run(roleName, `Rol ${roleName.toLowerCase()}`);
   });
+}
+
+// Catálogos mínimos para que la aplicación funcione sin datos de demostración.
+// Es idempotente y no abre transacción propia para poder reutilizarse dentro de otra.
+function seedBaseCatalogs() {
+  seedRoles();
 
   const insertDepartment = db.prepare('INSERT OR IGNORE INTO departments (name, description) VALUES (?, ?)');
   ['Dirección', 'Operaciones', 'Reservas', 'Ventas', 'Marketing'].forEach((departmentName) => {
@@ -346,19 +375,12 @@ function seedBaseCatalogs() {
   ].forEach((type) => insertType.run(...type));
 }
 
-function seedDatabase() {
+function seedDemoData() {
   const existing = db.prepare('SELECT COUNT(*) AS count FROM users').get().count;
   if (existing > 0) return;
 
-  if (config.isProduction) {
-    seedProductionDatabase();
-    return;
-  }
-
   db.exec('BEGIN');
   try {
-    seedBaseCatalogs();
-
     const insertUser = db.prepare(`
       INSERT INTO users (name, email, password_hash, role_id, department_id)
       VALUES (?, ?, ?, ?, ?)
@@ -413,33 +435,66 @@ function seedDatabase() {
   }
 }
 
-function seedProductionDatabase() {
+// Única cuenta que se crea automáticamente. Solo actúa sobre una base sin usuarios:
+// si ya hay alguien registrado, no toca nada.
+function seedInitialAdmin({ silent = false } = {}) {
+  const existing = db.prepare('SELECT COUNT(*) AS count FROM users').get().count;
+  if (existing > 0) return;
+
   const { name, email, password } = config.initialAdmin;
-  if (!/^\S+@\S+\.\S+$/.test(email)) {
-    throw new Error('INITIAL_ADMIN_EMAIL es obligatorio y debe ser un correo válido para inicializar producción');
+  if (!email.trim() && !password) {
+    if (config.isProduction) {
+      throw new Error(
+        'INITIAL_ADMIN_EMAIL e INITIAL_ADMIN_PASSWORD son obligatorios para inicializar una base vacía en producción'
+      );
+    }
+    if (!silent) {
+      console.warn(
+        'Base de datos sin usuarios. Define INITIAL_ADMIN_EMAIL / INITIAL_ADMIN_PASSWORD '
+        + 'o ejecuta "npm run create-admin" para poder iniciar sesión.'
+      );
+    }
+    return;
   }
-  if (password.length < 12 || password === 'Demo123!') {
-    throw new Error('INITIAL_ADMIN_PASSWORD debe tener al menos 12 caracteres y no puede ser la contraseña demo');
+
+  createAdminUser({ name, email, password });
+  if (!silent) console.log(`Administrador inicial creado para ${email.trim().toLowerCase()}`);
+}
+
+function assertAdminCredentials(email, password) {
+  if (!/^\S+@\S+\.\S+$/.test(String(email).trim())) {
+    throw new Error('El correo del administrador inicial no es válido');
   }
+  if (String(password).length < 12) {
+    throw new Error('La contraseña del administrador inicial debe tener al menos 12 caracteres');
+  }
+  if (password === 'Demo123!') {
+    throw new Error('La contraseña del administrador inicial no puede ser la contraseña de demostración');
+  }
+}
+
+// Crea el administrador dentro de su propia transacción. Devuelve el id creado.
+function createAdminUser({ name, email, password }) {
+  assertAdminCredentials(email, password);
 
   db.exec('BEGIN');
   try {
-    seedBaseCatalogs();
-
+    seedRoles();
     const role = db.prepare("SELECT id FROM roles WHERE name = 'Administrador'").get();
+    // En modo 'blank' no existen departamentos: la columna admite NULL.
     const department = db.prepare("SELECT id FROM departments WHERE name = 'Dirección'").get();
-    db.prepare(`
+    const result = db.prepare(`
       INSERT INTO users (name, email, password_hash, role_id, department_id)
       VALUES (?, ?, ?, ?, ?)
     `).run(
-      name.trim() || 'Administrador',
+      String(name || '').trim() || 'Administrador',
       email.trim().toLowerCase(),
       hashPassword(password),
       role.id,
-      department.id
+      department ? department.id : null
     );
     db.exec('COMMIT');
-    console.log(`Administrador inicial creado para ${email.trim().toLowerCase()}`);
+    return Number(result.lastInsertRowid);
   } catch (error) {
     db.exec('ROLLBACK');
     throw error;
@@ -524,4 +579,11 @@ function ensureDefaultSettings() {
   Object.entries(defaults).forEach(([key, value]) => insert.run(key, JSON.stringify(value)));
 }
 
-module.exports = { db, initializeDatabase, hashPassword };
+module.exports = {
+  db,
+  initializeDatabase,
+  hashPassword,
+  passwordMatches,
+  createAdminUser,
+  assertAdminCredentials
+};
