@@ -87,6 +87,11 @@ module.exports = {
   sessionSecret: process.env.SESSION_SECRET || 'development-only-secret',
   integrationEncryptionKey: process.env.INTEGRATION_ENCRYPTION_KEY || process.env.SESSION_SECRET || 'development-only-encryption-key',
   timezone: process.env.DEFAULT_TIMEZONE || 'America/Santo_Domingo',
+  // Apuntar BACKUP_PATH a una carpeta sincronizada o a un recurso de red es todo
+  // lo que hace falta para que las copias salgan del equipo.
+  backupPath: path.resolve(rootDir, process.env.BACKUP_PATH || 'data/backups'),
+  backupRetention: Number(process.env.BACKUP_RETENTION || 30),
+  backupEnabled: String(process.env.BACKUP_ENABLED || 'true').trim().toLowerCase() !== 'false',
   initialAdmin: {
     name: process.env.INITIAL_ADMIN_NAME || 'Administrador',
     email: process.env.INITIAL_ADMIN_EMAIL || '',

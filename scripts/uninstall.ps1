@@ -103,6 +103,16 @@ else {
   }
 }
 
+# ------------------------------------------------------------ Tarea de respaldo
+Write-Step 'Eliminando la tarea de respaldo programada'
+
+try {
+  & (Join-Path $PSScriptRoot 'manage.ps1') -Action remove-backup-task
+}
+catch {
+  Write-Info "No se pudo eliminar la tarea: $($_.Exception.Message)"
+}
+
 # ----------------------------------------------------------- Accesos directos
 Write-Step 'Eliminando los accesos directos'
 

@@ -38,7 +38,7 @@ const state = {
     defaultReminderMinutes: 30, notificationsEnabled: true, developerModeEnabled: false,
     browserPushEnabled: false, emailNotificationsEnabled: false,
     emailWebhookUrl: '', whatsappNotificationsEnabled: false,
-    whatsappWebhookUrl: '', whatsappRecipient: ''
+    whatsappWebhookUrl: '', whatsappRecipient: '', googleIntegrationEnabled: true
   },
   settingsCanEdit: false,
   notifications: [],
@@ -165,7 +165,103 @@ async function loadSettings() {
   });
   $('#new-resource').hidden = !state.settingsCanEdit;
   $('.reminder-field').hidden = !state.settings.remindersEnabled;
+  renderBackupDestinations(state.settings.backupDestinations);
+  loadBackupStatus().catch(() => {});
+  renderGoogleIntegration();
   renderDeveloperTools();
+}
+
+// --- Destinos de respaldo ----------------------------------------------------
+
+function backupDestinationRow(value = '') {
+  return `
+    <div class="backup-destination">
+      <input class="backup-destination-input" type="text" value="${escapeHtml(value)}"
+        placeholder="C:\\Respaldos\\gestor o \\\\SERVIDOR\\Respaldos" aria-label="Ruta de destino">
+      <button class="icon-button backup-destination-remove" type="button" aria-label="Quitar destino">
+        <svg><use href="#icon-close"></use></svg>
+      </button>
+    </div>`;
+}
+
+function renderBackupDestinations(destinations = []) {
+  const container = $('#backup-destinations');
+  if (!container) return;
+  container.innerHTML = destinations.length
+    ? destinations.map((item) => backupDestinationRow(item)).join('')
+    : '<p class="muted">Sin destinos propios: se usa la carpeta indicada por BACKUP_PATH.</p>';
+  container.querySelectorAll('.backup-destination-input, .backup-destination-remove')
+    .forEach((control) => { control.disabled = !state.settingsCanEdit; });
+}
+
+function readBackupDestinations() {
+  return $$('#backup-destinations .backup-destination-input')
+    .map((input) => input.value.trim())
+    .filter(Boolean);
+}
+
+async function loadBackupStatus() {
+  if (!state.settingsCanEdit) return;
+  const panel = $('#backup-status');
+  try {
+    const data = await api('/api/backups');
+    panel.innerHTML = data.destinations.map((item) => {
+      const when = item.lastBackupAt
+        ? formatDate(item.lastBackupAt, { dateStyle: 'medium', timeStyle: 'short' })
+        : 'sin respaldos todavía';
+      const state = item.writable ? 'ok' : 'error';
+      const detail = item.writable ? `${item.count} copia(s) · ${when}` : 'no se puede escribir';
+      return `<div class="backup-status-row ${state}">
+        <strong>${escapeHtml(item.directory)}</strong>
+        <small>${escapeHtml(detail)}</small>
+      </div>`;
+    }).join('');
+  } catch (error) {
+    panel.textContent = error.message;
+  }
+}
+
+async function runBackupNow() {
+  const button = $('#run-backup');
+  button.disabled = true;
+  button.textContent = 'Respaldando…';
+  try {
+    const data = await api('/api/backups/run', { method: 'POST' });
+    const ok = data.results.filter((item) => item.ok).length;
+    const failed = data.results.filter((item) => !item.ok);
+    toast(failed.length
+      ? `Respaldo en ${ok} destino(s); falló ${failed.length}: ${failed[0].error}`
+      : `Respaldo creado en ${ok} destino(s)`);
+    await loadBackupStatus();
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Respaldar ahora';
+  }
+}
+
+// Refleja el interruptor de Configuración en todos los puntos de entrada a la
+// integración. La visibilidad depende del ajuste guardado, no de la casilla, para
+// que la interfaz no quede a medias si el formulario no llega a guardarse.
+function renderGoogleIntegration() {
+  const enabled = state.settings.googleIntegrationEnabled !== false;
+
+  $$('.integration-nav').forEach((item) => { item.hidden = !enabled; });
+  $$('.go-integrations').forEach((item) => { item.hidden = !enabled; });
+  const syncField = $('#sync-with-google-field');
+  if (syncField) syncField.hidden = !enabled;
+
+  const note = $('#google-integration-note');
+  if (note) {
+    const checked = $('#settings-form').elements.googleIntegrationEnabled.checked;
+    note.textContent = checked === enabled
+      ? ''
+      : 'Guarda la configuración para aplicar este cambio.';
+  }
+
+  // Si se desactiva mientras la sección está abierta, no puede quedarse visible.
+  if (!enabled && !$('#integrations-view').hidden) showView('dashboard');
 }
 
 function renderDeveloperTools() {
@@ -240,12 +336,18 @@ async function saveSettings(event) {
     notificationRetentionDays: Number(values.notificationRetentionDays),
     locationConflictsEnabled: form.elements.locationConflictsEnabled.checked,
     resourceConflictsEnabled: form.elements.resourceConflictsEnabled.checked,
+    googleIntegrationEnabled: form.elements.googleIntegrationEnabled.checked,
+    // Se leen del DOM y no del FormData: son campos repetidos sin nombre único.
+    backupDestinations: readBackupDestinations(),
+    backupRetentionCount: Number(values.backupRetentionCount),
     developerModeEnabled: form.elements.developerModeEnabled.checked
   };
   try {
     const data = await api('/api/settings', { method: 'PUT', body: JSON.stringify(input) });
     state.settings = data.settings;
     $('.reminder-field').hidden = !state.settings.remindersEnabled;
+    renderBackupDestinations(state.settings.backupDestinations);
+    loadBackupStatus().catch(() => {});
     renderDeveloperTools();
     renderCalendar();
     await loadDashboard();
@@ -964,7 +1066,12 @@ function openEventModal(event = null, date = null) {
   }
   $('#event-error').hidden = true;
   $('#delete-event').hidden = !event || !event.canDelete;
-  $('#sync-event').hidden = !event || readOnly;
+  $('#sync-event').hidden = !event || readOnly || state.settings.googleIntegrationEnabled === false;
+  // Compartir es una operación de lectura: se ofrece también en modo consulta.
+  // Solo se oculta si el evento aún no existe, porque no habría nada que enviar.
+  state.openEvent = event;
+  $('#share-event-wrapper').hidden = !event;
+  toggleShareMenu(false);
   form.querySelector('[type=submit]').hidden = readOnly;
   $('#modal-title').textContent = readOnly ? 'Detalle del evento' : event ? 'Editar evento' : 'Nuevo evento';
   $('#recurrence-fields').hidden = Boolean(event);
@@ -1009,6 +1116,7 @@ function openEventModal(event = null, date = null) {
 function closeEventModal() {
   state.conflictRequest += 1;
   clearTimeout(scheduleConflictCheck.timer);
+  toggleShareMenu(false);
   setOverlayOpen($('#event-modal'), false);
   state.lastFocused?.focus?.();
 }
@@ -1082,6 +1190,103 @@ async function cancelEvent() {
   closeEventModal();
   await refreshWorkspace();
   toast(data.occurrencesCanceled > 1 ? `${data.occurrencesCanceled} ocurrencias canceladas` : 'Evento cancelado');
+}
+
+// --- Compartir un evento -----------------------------------------------------
+
+// Google espera YYYYMMDDTHHmmssZ. Las fechas se guardan como ISO en UTC, así que
+// basta con retirar separadores y milisegundos.
+function googleStamp(iso) {
+  return new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+}
+
+// Para eventos de día completo Google usa YYYYMMDD y la fecha final es exclusiva.
+function googleAllDayStamp(iso, addDay = 0) {
+  const date = new Date(iso);
+  date.setDate(date.getDate() + addDay);
+  return date.toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+function googleCalendarUrl(event) {
+  const dates = event.allDay
+    ? `${googleAllDayStamp(event.startDatetime)}/${googleAllDayStamp(event.endDatetime, 1)}`
+    : `${googleStamp(event.startDatetime)}/${googleStamp(event.endDatetime)}`;
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: event.title || 'Evento',
+    dates
+  });
+  // Se recortan porque una URL demasiado larga se parte en algunos clientes.
+  if (event.description) params.set('details', event.description.slice(0, 900));
+  if (event.location) params.set('location', event.location.slice(0, 200));
+  return `https://calendar.google.com/calendar/render?${params}`;
+}
+
+function shareSummary(event) {
+  const when = event.allDay
+    ? formatDate(event.startDatetime, { dateStyle: 'full' })
+    : `${formatDate(event.startDatetime, { dateStyle: 'full', timeStyle: 'short' })}`
+      + ` – ${formatDate(event.endDatetime, { timeStyle: 'short' })}`;
+  const lines = [event.title, when];
+  if (event.location) lines.push(`Lugar: ${event.location}`);
+  if (event.responsibleName) lines.push(`Responsable: ${event.responsibleName}`);
+  if (event.description) lines.push('', event.description);
+  return lines.join('\n');
+}
+
+function toggleShareMenu(open) {
+  const menu = $('#share-menu');
+  const button = $('#share-event');
+  const next = open === undefined ? menu.hidden : open;
+  menu.hidden = !next;
+  button.setAttribute('aria-expanded', String(next));
+}
+
+// El botón abre siempre la lista propia. Delegar en navigator.share no serviría:
+// en el escritorio abre el diálogo de Windows, que no ofrece «Añadir a Google
+// Calendar», justamente la opción que más se va a usar. El menú del sistema
+// queda como una entrada más, visible solo donde existe.
+function shareCurrentEvent() {
+  if (!state.openEvent) return;
+  toggleShareMenu();
+}
+
+async function runShareOption(action) {
+  const event = state.openEvent;
+  if (!event) return;
+  toggleShareMenu(false);
+  const summary = shareSummary(event);
+
+  if (action === 'google') {
+    window.open(googleCalendarUrl(event), '_blank', 'noopener');
+    return;
+  }
+  if (action === 'whatsapp') {
+    window.open(`https://wa.me/?text=${encodeURIComponent(summary)}`, '_blank', 'noopener');
+    return;
+  }
+  if (action === 'email') {
+    const subject = encodeURIComponent(event.title || 'Evento');
+    window.location.href = `mailto:?subject=${subject}&body=${encodeURIComponent(summary)}`;
+    return;
+  }
+  if (action === 'copy') {
+    try {
+      await navigator.clipboard.writeText(summary);
+      toast('Datos del evento copiados');
+    } catch {
+      toast('No se pudo copiar. Revisa los permisos del navegador.');
+    }
+    return;
+  }
+  if (action === 'system' && navigator.share) {
+    try {
+      await navigator.share({ title: event.title, text: summary });
+    } catch (error) {
+      // AbortError significa que la persona cerró el diálogo: no es un fallo.
+      if (error?.name !== 'AbortError') toast('No se pudo abrir el menú del sistema');
+    }
+  }
 }
 
 async function syncCurrentEvent() {
@@ -1297,6 +1502,7 @@ function handleIntegrationCallback() {
 
 function showView(name) {
   if (['admin', 'settings'].includes(name) && state.user.role !== 'Administrador') return;
+  if (name === 'integrations' && state.settings.googleIntegrationEnabled === false) return;
   $$('.view').forEach((view) => { view.hidden = view.id !== `${name}-view`; });
   $$('.nav-item[data-view]').forEach((item) => item.classList.toggle('active', item.dataset.view === name));
   $('#page-title').textContent = VIEW_TITLES[name];
@@ -1341,6 +1547,22 @@ $('#cancel-modal').addEventListener('click', closeEventModal);
 $('#event-form').addEventListener('submit', saveEvent);
 $('#delete-event').addEventListener('click', cancelEvent);
 $('#sync-event').addEventListener('click', syncCurrentEvent);
+$('#share-event').addEventListener('click', (event) => {
+  event.stopPropagation();
+  shareCurrentEvent();
+});
+// navigator.share exige contexto seguro: existe en localhost y con HTTPS, pero no
+// sobre HTTP en la red local. La entrada solo aparece donde puede funcionar.
+$('#share-system').hidden = !navigator.share;
+$$('.share-option').forEach((option) => {
+  option.addEventListener('click', () => runShareOption(option.dataset.share));
+});
+// Cerrar al pulsar fuera, como cualquier desplegable.
+document.addEventListener('click', (event) => {
+  if (!$('#share-menu').hidden && !$('#share-event-wrapper').contains(event.target)) {
+    toggleShareMenu(false);
+  }
+});
 $('#connect-google').addEventListener('click', connectGoogle);
 $('#configure-google').addEventListener('click', openGoogleConfiguration);
 $('#copy-env-template').addEventListener('click', copyEnvironmentTemplate);
@@ -1350,6 +1572,23 @@ $('#import-google-changes').addEventListener('click', importGoogleChanges);
 $('#settings-form').addEventListener('submit', saveSettings);
 $('#report-filter').addEventListener('submit', loadReports);
 $('#settings-form').elements.developerModeEnabled.addEventListener('change', renderDeveloperTools);
+$('#settings-form').elements.googleIntegrationEnabled.addEventListener('change', renderGoogleIntegration);
+$('#run-backup').addEventListener('click', runBackupNow);
+$('#add-backup-destination').addEventListener('click', () => {
+  const container = $('#backup-destinations');
+  // La primera vez el contenedor lleva el texto de «sin destinos propios».
+  if (!container.querySelector('.backup-destination')) container.innerHTML = '';
+  container.insertAdjacentHTML('beforeend', backupDestinationRow());
+  container.querySelector('.backup-destination:last-child .backup-destination-input')?.focus();
+});
+$('#backup-destinations').addEventListener('click', (event) => {
+  const remove = event.target.closest('.backup-destination-remove');
+  if (!remove) return;
+  remove.closest('.backup-destination').remove();
+  if (!$('#backup-destinations').querySelector('.backup-destination')) {
+    renderBackupDestinations([]);
+  }
+});
 $('#enable-browser-push').addEventListener('click', () => enableBrowserPush().catch((error) => toast(error.message)));
 $('#test-notification').addEventListener('click', () => sendTestNotification('test'));
 $('#test-reminder').addEventListener('click', () => sendTestNotification('reminder'));
@@ -1565,6 +1804,9 @@ $('#resource-modal').addEventListener('click', (event) => {
 document.addEventListener('keydown', (event) => {
   const activeOverlay = $$('.modal-backdrop').find((overlay) => !overlay.hidden);
   if (activeOverlay) trapOverlayFocus(event, activeOverlay);
+  // El desplegable de compartir se cierra primero: Escape no debe descartar el
+  // evento completo cuando solo se quería salir del menú.
+  if (event.key === 'Escape' && !$('#share-menu').hidden) return toggleShareMenu(false);
   if (event.key === 'Escape' && !$('#event-modal').hidden) closeEventModal();
   if (event.key === 'Escape' && !$('#integration-config-modal').hidden) closeGoogleConfiguration();
   if (event.key === 'Escape' && !$('#calendar-admin-modal').hidden) closeCalendarAdministration();

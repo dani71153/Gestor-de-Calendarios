@@ -9,7 +9,8 @@ Ejecuta los pasos en orden y pregunta lo que no puede deducir:
   2. instala dependencias;
   3. crea .env con secretos generados, si todavía no existe;
   4. pide correo y contraseña y crea la cuenta de Administrador;
-  5. crea el acceso directo del escritorio.
+  5. crea el acceso directo del escritorio;
+  6. programa el respaldo diario de la base de datos.
 
 Es re-ejecutable: no sobrescribe un .env existente ni borra la base de datos.
 
@@ -25,7 +26,8 @@ param(
   [int]$Port = 3000,
   [string]$Timezone = 'America/Santo_Domingo',
   [switch]$Startup,
-  [switch]$SkipShortcut
+  [switch]$SkipShortcut,
+  [switch]$SkipBackupTask
 )
 
 $ErrorActionPreference = 'Stop'
@@ -36,7 +38,7 @@ $unattended = [bool]$Email -and [bool]$Password
 
 function Write-Step {
   param([int]$Number, [string]$Title)
-  Write-Host "`n[$Number/5] $Title" -ForegroundColor Cyan
+  Write-Host "`n[$Number/6] $Title" -ForegroundColor Cyan
 }
 
 function Write-Ok {
@@ -258,7 +260,7 @@ finally {
 
 Write-Ok "Acceso configurado para $adminEmail"
 
-# ------------------------------------------------------------ 5. Acceso directo
+# --------------------------------------------------------- 5. Acceso directo
 Write-Step -Number 5 -Title 'Creando el acceso directo'
 
 if ($SkipShortcut) {
@@ -281,6 +283,24 @@ else {
   }
 }
 
+# ------------------------------------------------------- 6. Respaldo diario
+Write-Step -Number 6 -Title 'Programando el respaldo diario'
+
+if ($SkipBackupTask) {
+  Write-Info 'Omitido por -SkipBackupTask.'
+}
+else {
+  try {
+    & (Join-Path $PSScriptRoot 'manage.ps1') -Action install-backup-task
+  }
+  catch {
+    # No es motivo para dar la instalacion por fallida: el servidor tambien
+    # respalda al arrancar, asi que queda cubierto aunque la tarea no se registre.
+    Write-Host "      No se pudo registrar la tarea programada: $($_.Exception.Message)" -ForegroundColor Yellow
+    Write-Info 'El servidor seguira respaldando al arrancar.'
+  }
+}
+
 # ------------------------------------------------------------------ Resumen
 Write-Host "`n-------------------------------------" -ForegroundColor Cyan
 Write-Host 'INSTALACIÓN COMPLETA' -ForegroundColor Green
@@ -294,6 +314,6 @@ Write-Host 'Recuerda:' -ForegroundColor Yellow
 Write-Host '  - Copia el archivo .env fuera de este equipo. Si se pierde'
 Write-Host '    INTEGRATION_ENCRYPTION_KEY, los tokens guardados de Google'
 Write-Host '    dejan de poder descifrarse.'
-Write-Host '  - Respalda la base con: .\scripts\manage.ps1 -Action backup-db'
-Write-Host '    y guarda las copias en otro equipo.'
+Write-Host '  - Los respaldos van a dataackups. Copialos a otro equipo:'
+Write-Host '    un disco danado se lleva la base y sus respaldos a la vez.'
 Write-Host ''

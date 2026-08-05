@@ -573,6 +573,11 @@ function ensureDefaultSettings() {
     notificationRetentionDays: 30,
     locationConflictsEnabled: true,
     resourceConflictsEnabled: true,
+    googleIntegrationEnabled: true,
+    // Vacío significa «usa BACKUP_PATH»; la retención hereda el valor del entorno
+    // en una base nueva y a partir de ahí se administra desde Configuración.
+    backupDestinations: [],
+    backupRetentionCount: config.backupRetention,
     developerModeEnabled: false
   };
   const insert = db.prepare('INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)');

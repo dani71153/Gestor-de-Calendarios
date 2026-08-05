@@ -1,5 +1,9 @@
+const fs = require('node:fs');
+const path = require('node:path');
 const { db } = require('./database');
 const { requireAdministrator } = require('./authorization');
+
+const MAX_BACKUP_DESTINATIONS = 5;
 
 const DEFAULT_SETTINGS = {
   distributionMaxCalendars: 5,
@@ -20,8 +24,54 @@ const DEFAULT_SETTINGS = {
   notificationRetentionDays: 30,
   locationConflictsEnabled: true,
   resourceConflictsEnabled: true,
+  googleIntegrationEnabled: true,
+  // Lista vacía significa «usa BACKUP_PATH». Al añadir destinos desde la
+  // interfaz, esta lista pasa a mandar sobre esa variable.
+  backupDestinations: [],
+  backupRetentionCount: 30,
   developerModeEnabled: false
 };
+
+// Se comprueba de verdad que se pueda escribir: aceptar una ruta de red caída
+// daría una falsa sensación de respaldo hasta el día en que hiciera falta.
+function checkDestination(destination) {
+  if (!path.isAbsolute(destination) && !/^[a-zA-Z]:[\\/]/.test(destination) && !destination.startsWith('\\\\')) {
+    return `La ruta "${destination}" debe ser absoluta`;
+  }
+  try {
+    fs.mkdirSync(destination, { recursive: true });
+    const probe = path.join(destination, `.escritura-${process.pid}.tmp`);
+    fs.writeFileSync(probe, 'ok');
+    fs.rmSync(probe, { force: true });
+    return null;
+  } catch (error) {
+    return `No se puede escribir en "${destination}": ${error.code || error.message}`;
+  }
+}
+
+function normalizeBackupDestinations(input) {
+  const list = Array.isArray(input) ? input : [];
+  const cleaned = [];
+  const seen = new Set();
+
+  for (const item of list) {
+    const value = String(item || '').trim().replace(/[\\/]+$/, '');
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    cleaned.push(value);
+  }
+
+  if (cleaned.length > MAX_BACKUP_DESTINATIONS) {
+    return { error: `No se admiten más de ${MAX_BACKUP_DESTINATIONS} destinos de respaldo` };
+  }
+  for (const destination of cleaned) {
+    const error = checkDestination(destination);
+    if (error) return { error };
+  }
+  return { destinations: cleaned };
+}
 
 function readSettings() {
   const stored = Object.fromEntries(db.prepare('SELECT key, value FROM system_settings').all().map((setting) => {
@@ -54,8 +104,18 @@ function normalizeSettings(input) {
     notificationRetentionDays: Number(input.notificationRetentionDays),
     locationConflictsEnabled: Boolean(input.locationConflictsEnabled),
     resourceConflictsEnabled: Boolean(input.resourceConflictsEnabled),
+    googleIntegrationEnabled: Boolean(input.googleIntegrationEnabled),
+    backupDestinations: [],
+    backupRetentionCount: Number(input.backupRetentionCount),
     developerModeEnabled: Boolean(input.developerModeEnabled)
   };
+  const backups = normalizeBackupDestinations(input.backupDestinations);
+  if (backups.error) return { error: backups.error };
+  settings.backupDestinations = backups.destinations;
+  if (!Number.isInteger(settings.backupRetentionCount)
+    || settings.backupRetentionCount < 1 || settings.backupRetentionCount > 365) {
+    return { error: 'La cantidad de respaldos conservados debe estar entre 1 y 365' };
+  }
   if (!Number.isInteger(settings.distributionMaxCalendars)
     || settings.distributionMaxCalendars < 1 || settings.distributionMaxCalendars > 20) {
     return { error: 'El máximo de calendarios debe estar entre 1 y 20' };
@@ -160,6 +220,37 @@ function registerSettingsRoutes(app, authMiddleware) {
     res.json({ success: true, settings: normalized.settings });
   });
 
+  // Estado por destino: con varios configurados hay que poder ver cuál está
+  // recibiendo copias y cuál lleva días fallando.
+  app.get('/api/backups', authMiddleware, requireAdministrator, (req, res) => {
+    const { backupDestinations, listSnapshots, backupRetention } = require('./backup');
+    const destinations = backupDestinations().map((directory) => {
+      const snapshots = listSnapshots(directory);
+      const newest = snapshots[0];
+      return {
+        directory,
+        count: snapshots.length,
+        writable: checkDestination(directory) === null,
+        lastBackupAt: newest ? fs.statSync(newest).mtime.toISOString() : null,
+        lastBackupSize: newest ? fs.statSync(newest).size : null
+      };
+    });
+    res.json({ success: true, destinations, retention: backupRetention() });
+  });
+
+  app.post('/api/backups/run', authMiddleware, requireAdministrator, (req, res) => {
+    const { createBackups } = require('./backup');
+    const results = createBackups();
+    const failed = results.filter((item) => !item.ok);
+    // Que un destino falle no invalida los que sí se escribieron: se informa
+    // del detalle y el cliente decide cómo presentarlo.
+    res.json({
+      success: results.some((item) => item.ok),
+      results,
+      error: failed.length ? failed.map((item) => item.error).join(' · ') : undefined
+    });
+  });
+
   app.get('/api/resources', authMiddleware, (req, res) => {
     const resources = db.prepare(`
       SELECT id, name, type, location, status
@@ -222,7 +313,10 @@ function registerSettingsRoutes(app, authMiddleware) {
 
 module.exports = {
   DEFAULT_SETTINGS,
+  MAX_BACKUP_DESTINATIONS,
   readSettings,
   normalizeSettings,
+  normalizeBackupDestinations,
+  checkDestination,
   registerSettingsRoutes
 };

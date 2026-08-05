@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const { db } = require('../database');
 const config = require('../config');
+const { readSettings } = require('../settings');
 const {
   accessibleCalendarIds,
   calendarCapabilities,
@@ -54,6 +55,18 @@ function validateProviderSettings(input) {
   return null;
 }
 
+// Desactivar la integración desde Configuración no puede limitarse a esconder
+// botones: una pestaña abierta desde antes seguiría teniendo los suyos.
+function requireIntegrationEnabled(req, res, next) {
+  if (!readSettings().googleIntegrationEnabled) {
+    return res.status(403).json({
+      success: false,
+      error: 'La integración con Google Calendar está desactivada en la configuración del sistema'
+    });
+  }
+  next();
+}
+
 function registerIntegrationRoutes(app, {
   authMiddleware,
   provider,
@@ -61,6 +74,10 @@ function registerIntegrationRoutes(app, {
   settingsRepository,
   syncService
 }) {
+  // Cubre también las rutas que se añadan más adelante bajo estos prefijos.
+  app.use('/api/integrations', requireIntegrationEnabled);
+  app.use('/api/sync', requireIntegrationEnabled);
+
   app.get(
     '/api/integrations/google/config',
     authMiddleware,
@@ -169,7 +186,8 @@ function registerIntegrationRoutes(app, {
     res.json({ success: true });
   });
 
-  app.post('/api/events/:id/sync', authMiddleware, async (req, res) => {
+  // Fuera de los prefijos cubiertos por app.use, así que se protege aparte.
+  app.post('/api/events/:id/sync', authMiddleware, requireIntegrationEnabled, async (req, res) => {
     try {
       const id = Number(req.params.id);
       const current = syncService.getEvent(id);

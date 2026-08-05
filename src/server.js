@@ -8,6 +8,7 @@ const { registerEventRoutes } = require('./events');
 const { registerAdministrationRoutes } = require('./administration');
 const { registerSettingsRoutes } = require('./settings');
 const { registerReminderRoutes, startReminderScheduler } = require('./reminders');
+const { startBackupScheduler } = require('./backup');
 const { registerReportRoutes } = require('./reports');
 const { IntegrationRepository } = require('./integrations/integration.repository');
 const { ProviderSettingsRepository } = require('./integrations/provider-settings.repository');
@@ -66,5 +67,6 @@ const server = app.listen(config.port, () => {
   }
 });
 startReminderScheduler();
+startBackupScheduler();
 
 module.exports = { app, server };

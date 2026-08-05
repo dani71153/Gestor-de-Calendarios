@@ -110,13 +110,14 @@ Con Node.js 24.x ya instalado, un único comando deja el equipo listo:
 .\scripts\install.ps1
 ```
 
-Ejecuta cinco pasos y pregunta solo lo que no puede deducir:
+Ejecuta seis pasos y pregunta solo lo que no puede deducir:
 
 1. comprueba que Node.js existe y que su versión es 24 o superior, requisito del módulo `node:sqlite`;
 2. instala las dependencias con `npm install`;
 3. crea el `.env` con `SESSION_SECRET` e `INTEGRATION_ENCRYPTION_KEY` generados aleatoriamente;
 4. pide correo, contraseña (dos veces, oculta) y nombre, y crea la cuenta de Administrador;
-5. crea el acceso directo, preguntando si debe abrirse al iniciar sesión en Windows.
+5. crea el acceso directo, preguntando si debe abrirse al iniciar sesión en Windows;
+6. registra la tarea de Windows que respalda la base a diario.
 
 **Es re-ejecutable.** No sobrescribe un `.env` existente ni toca la base de datos. Si la cuenta ya existe, pregunta antes de restablecer su contraseña.
 
@@ -126,7 +127,7 @@ Para instalación desatendida, sin preguntas:
 .\scripts\install.ps1 -Email admin@empresa.com -Password "clave-de-12-o-mas" -Startup
 ```
 
-Otros parámetros: `-Name`, `-Port`, `-Timezone` y `-SkipShortcut`.
+Otros parámetros: `-Name`, `-Port`, `-Timezone`, `-SkipShortcut` y `-SkipBackupTask`.
 
 La contraseña se pasa a `create-admin.js` mediante variables de entorno y no como argumento, para que no quede visible en la lista de procesos del sistema.
 
@@ -163,6 +164,70 @@ Antes de borrar la base guarda una copia —incluyendo el `.env`— en `Document
 
 No desinstala Node.js ni borra la carpeta del proyecto. Los accesos directos viven en el perfil del usuario de Windows, así que se eliminan aunque ejecutes el script desde una copia del proyecto situada en otra ruta.
 
+### Respaldos y restauración
+
+Los respaldos usan `VACUUM INTO`, que produce un snapshot íntegro de una base en uso, en un único archivo sin WAL ni SHM asociados. **No hace falta detener el servidor.** Copiar `calendar-manager.sqlite` con el explorador o con `Copy-Item` no es equivalente: lo que todavía vive en el archivo WAL quedaría fuera.
+
+```powershell
+npm run backup                      # snapshot + rotación
+npm run backup -- --list            # ver los respaldos existentes
+npm run backup -- --keep 60         # conservar más copias
+npm run backup -- --dir "D:\Copias" # destino puntual distinto
+```
+
+Se disparan por dos vías, redundantes a propósito:
+
+| Vía | Cuándo | Si falla la otra |
+| --- | --- | --- |
+| Servidor | Al arrancar y cada 24 h | Cubre los días en que la tarea no llegó a correr |
+| Tarea de Windows | Diaria a las 13:00 | Cubre los días en que la aplicación no se abrió |
+
+El servidor omite el snapshot si ya hay uno de hace menos de seis horas, para que reiniciar la aplicación no genere decenas de copias. La tarea programada no aplica esa espera: cuando se lanza, respalda.
+
+```powershell
+.\scripts\manage.ps1 -Action install-backup-task   # registrar la tarea
+.\scripts\manage.ps1 -Action remove-backup-task    # quitarla
+```
+
+`install.ps1` la registra sola. Si no puede, avisa pero no da la instalación por fallida: el respaldo del servidor sigue cubriendo.
+
+#### Restaurar
+
+```powershell
+npm run restore -- --latest                  # desde el respaldo más reciente
+npm run restore -- --file "data\backups\..." # desde uno concreto
+```
+
+Antes de sustituir nada verifica que el respaldo pase `PRAGMA integrity_check` y contenga las tablas esperadas, y guarda un snapshot del estado actual con el prefijo `previo-a-restaurar`, de modo que una restauración equivocada también se pueda deshacer.
+
+El servidor debe estar detenido. En Windows el archivo en uso no se puede reemplazar, así que la operación falla de forma segura en lugar de dejar la base a medias.
+
+#### Destinos
+
+**Configuración → Respaldos** permite definir varios destinos, que no se excluyen: uno local y otro en una carpeta sincronizada con la nube o en un recurso de red conviven sin problema. Se admiten hasta cinco.
+
+Todos reciben **el mismo snapshot**: se hace un único `VACUUM INTO` y de ahí se copia byte a byte al resto. Así las copias representan exactamente el mismo instante y la base solo se recorre una vez.
+
+**Un destino caído no impide que los demás se escriban.** Si la ruta de red está inaccesible, esa copia falla y las otras se completan; el resultado detalla qué destino funcionó y cuál no. El panel de estado bajo la lista muestra, por destino, cuántas copias tiene y de cuándo es la última.
+
+Las rutas se validan al guardar escribiendo un archivo de prueba: una ruta relativa o un recurso inaccesible se rechazan en el momento, en lugar de dar una falsa sensación de respaldo hasta el día en que haga falta.
+
+El botón **Respaldar ahora** ejecuta el respaldo en todos los destinos y refresca el estado. Es la forma de confirmar que una ruta de red recién añadida funciona de verdad.
+
+#### Variables de entorno
+
+| Variable | Por omisión | Para qué |
+| --- | --- | --- |
+| `BACKUP_PATH` | `./data/backups` | Destino usado **mientras no haya ninguno en Configuración** |
+| `BACKUP_RETENTION` | `30` | Retención inicial de una base nueva |
+| `BACKUP_ENABLED` | `true` | `false` desactiva el respaldo automático del servidor |
+
+La lista de Configuración manda sobre `BACKUP_PATH`. Esa variable queda como destino de partida para instalaciones que nunca hayan tocado la pantalla, y la retención de Configuración sustituye a `BACKUP_RETENTION` desde el primer arranque.
+
+**Con un único destino local, un disco dañado se lleva la base y sus copias a la vez.** Añadir un segundo destino en una carpeta sincronizada lo resuelve: el snapshot es inmutable una vez escrito, así que sincronizarlo es seguro, cosa que no ocurre con la base viva.
+
+`INTEGRATION_ENCRYPTION_KEY` no viaja en los snapshots, y sin ella los tokens de Google guardados dentro son indescifrables. Guarda una copia del `.env` **una sola vez** en un gestor de contraseñas o sobre físico, no junto a cada respaldo: la clave al lado de los datos que cifra anula el cifrado.
+
 ### Scripts disponibles
 
 | Script | Para qué sirve |
@@ -173,9 +238,11 @@ No desinstala Node.js ni borra la carpeta del proyecto. Los accesos directos viv
 | [`start-app.ps1`](scripts/start-app.ps1) | Arranca el servidor sin consola y abre el navegador. Lo invoca el acceso directo. |
 | [`install-shortcut.ps1`](scripts/install-shortcut.ps1) | Crea o elimina el acceso directo del escritorio y el de inicio de Windows. |
 | [`create-admin.js`](scripts/create-admin.js) | Crea o restablece una cuenta de Administrador. `npm run create-admin` |
+| [`backup.js`](scripts/backup.js) | Snapshot consistente con rotación. `npm run backup` |
+| [`restore.js`](scripts/restore.js) | Restaura desde un respaldo, verificándolo antes. `npm run restore` |
 | [`seed-demo.js`](scripts/seed-demo.js) | Carga los datos de demostración. `npm run seed:demo` |
 
-Acciones de `manage.ps1`: `status`, `start-server`, `stop-server`, `backup-db`, `delete-db`, `reset-blank`, `seed-demo`, `create-admin`, `install-shortcut` y `help`.
+Acciones de `manage.ps1`: `status`, `start-server`, `stop-server`, `backup-db`, `restore-db`, `delete-db`, `reset-blank`, `seed-demo`, `create-admin`, `install-shortcut`, `install-backup-task`, `remove-backup-task` y `help`.
 
 #### Nota al editar los scripts de PowerShell
 

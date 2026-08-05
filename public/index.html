@@ -24,6 +24,7 @@
     <symbol id="icon-right" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
     <symbol id="icon-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
     <symbol id="icon-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM9.5 21h5"/></symbol>
+    <symbol id="icon-share" viewBox="0 0 24 24"><path d="M18 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM8.6 13.5l6.8 3.5M15.4 7L8.6 10.5"/></symbol>
   </svg>
   <section id="login-screen" class="login-screen">
     <div class="login-brand">
@@ -293,6 +294,25 @@
               <label class="switch-row"><span><strong>Salas y recursos</strong><small>Evita reservas simultáneas del mismo recurso.</small></span><input name="resourceConflictsEnabled" type="checkbox"></label>
             </div>
           </article>
+          <article class="panel settings-card">
+            <div class="panel-heading"><div><p class="eyebrow">Servicios externos</p><h3>Google Calendar</h3></div></div>
+            <div class="settings-stack">
+              <label class="switch-row"><span><strong>Integración con Google Calendar</strong><small>Al desactivarla se ocultan la sección Integraciones, el botón de sincronizar y la marca de sincronización en los eventos.</small></span><input name="googleIntegrationEnabled" type="checkbox"></label>
+              <p id="google-integration-note" class="muted"></p>
+            </div>
+          </article>
+          <article class="panel settings-card backup-card">
+            <div class="panel-heading"><div><p class="eyebrow">Continuidad</p><h3>Respaldos</h3></div><button id="run-backup" class="button ghost" type="button">Respaldar ahora</button></div>
+            <div class="settings-stack">
+              <p class="muted">Cada destino recibe una copia del mismo snapshot. Un destino local y otro en una carpeta sincronizada o de red conviven sin excluirse.</p>
+              <div id="backup-destinations" class="backup-destinations"></div>
+              <button id="add-backup-destination" class="button ghost" type="button">Añadir destino</button>
+              <label>Respaldos conservados en cada destino
+                <input name="backupRetentionCount" type="number" min="1" max="365">
+              </label>
+              <div id="backup-status" class="backup-status" aria-live="polite"></div>
+            </div>
+          </article>
           <article class="panel settings-card resources-card">
             <div class="panel-heading"><div><p class="eyebrow">Inventario</p><h3>Salas y recursos</h3></div><button id="new-resource" class="button ghost" type="button">Nuevo recurso</button></div>
             <div id="resource-list" class="resource-list"></div>
@@ -477,7 +497,7 @@ INTEGRATION_ENCRYPTION_KEY=</pre>
           <label class="span-2">Descripción
             <textarea name="description" rows="3" placeholder="Notas y contexto del evento"></textarea>
           </label>
-          <label class="checkbox-row span-2">
+          <label id="sync-with-google-field" class="checkbox-row span-2">
             <input name="syncWithGoogle" type="checkbox"> Marcar para sincronizar con Google Calendar
           </label>
           </div>
@@ -485,6 +505,18 @@ INTEGRATION_ENCRYPTION_KEY=</pre>
         </div>
         <div class="modal-actions">
           <button id="delete-event" class="button danger" type="button" hidden>Cancelar evento</button>
+          <div id="share-event-wrapper" class="share-wrapper" hidden>
+            <button id="share-event" class="button ghost" type="button" aria-haspopup="true" aria-expanded="false">
+              <svg><use href="#icon-share"></use></svg>Compartir
+            </button>
+            <div id="share-menu" class="share-menu" role="menu" hidden>
+              <button class="share-option" type="button" role="menuitem" data-share="google">Añadir a Google Calendar</button>
+              <button class="share-option" type="button" role="menuitem" data-share="whatsapp">Enviar por WhatsApp</button>
+              <button class="share-option" type="button" role="menuitem" data-share="email">Enviar por correo</button>
+              <button class="share-option" type="button" role="menuitem" data-share="copy">Copiar los datos</button>
+              <button id="share-system" class="share-option" type="button" role="menuitem" data-share="system" hidden>Más opciones del sistema…</button>
+            </div>
+          </div>
           <button id="sync-event" class="button google-button" type="button" hidden>Sincronizar ahora</button>
           <span class="spacer"></span>
           <button id="cancel-modal" class="button ghost" type="button">Cerrar</button>

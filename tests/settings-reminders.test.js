@@ -20,6 +20,15 @@ test('valida los intervalos y el horario laboral', () => {
   assert.ok(normalizeSettings({ ...DEFAULT_SETTINGS, workdayStartHour: 18, workdayEndHour: 8 }).error);
 });
 
+test('la integración con Google llega activa por omisión y puede desactivarse', () => {
+  assert.equal(DEFAULT_SETTINGS.googleIntegrationEnabled, true);
+  const off = normalizeSettings({ ...DEFAULT_SETTINGS, googleIntegrationEnabled: false });
+  assert.equal(off.settings.googleIntegrationEnabled, false);
+  // Igual que el resto de interruptores, un campo ausente equivale a desactivado.
+  const missing = normalizeSettings({ ...DEFAULT_SETTINGS, googleIntegrationEnabled: undefined });
+  assert.equal(missing.settings.googleIntegrationEnabled, false);
+});
+
 test('acepta recordatorios entre cinco minutos y siete días', () => {
   assert.equal(normalizeReminderMinutes(5), 5);
   assert.equal(normalizeReminderMinutes('10080'), 10080);

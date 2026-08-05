@@ -1579,6 +1579,84 @@ td small {
   align-items: center;
 }
 
+.backup-destinations {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+}
+
+.backup-destination {
+  display: flex;
+  gap: .5rem;
+  align-items: center;
+}
+
+.backup-destination-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.backup-status {
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+}
+
+.backup-status-row {
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+  padding: .5rem .7rem;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--line);
+  background: var(--surface-muted);
+  overflow-wrap: anywhere;
+}
+
+.backup-status-row.ok { border-left-color: #10B981; }
+.backup-status-row.error { border-left-color: #e5484d; }
+
+.backup-status-row small { color: var(--text-muted, inherit); }
+
+.share-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Se despliega hacia arriba: el botón vive en el pie del modal y hacia abajo
+   quedaría fuera de la vista. */
+.share-menu {
+  position: absolute;
+  z-index: 40;
+  bottom: calc(100% + .5rem);
+  left: 0;
+  min-width: 15rem;
+  padding: .35rem;
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-raised);
+}
+
+.share-option {
+  padding: .55rem .7rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.share-option:hover,
+.share-option:focus-visible {
+  background: var(--surface-muted);
+}
+
 .event-drawer .modal-actions {
   position: relative;
   flex: 0 0 auto;

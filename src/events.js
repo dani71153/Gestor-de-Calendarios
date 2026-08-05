@@ -281,6 +281,9 @@ function registerEventRoutes(app, authMiddleware) {
     if (!calendarCapabilities(req.user, input.calendarId).canCreate) {
       return res.status(403).json({ success: false, error: 'No tienes permiso para crear eventos en este calendario' });
     }
+    // Con la integración desactivada nada debe encolarse para sincronizar,
+    // aunque el cliente envíe la marca.
+    if (!readSettings().googleIntegrationEnabled) input.syncWithGoogle = false;
     const recurrence = normalizeRecurrence(input.recurrence);
     const dates = recurrence
       ? occurrenceDates(input.startDatetime, input.endDatetime, recurrence)
@@ -349,6 +352,7 @@ function registerEventRoutes(app, authMiddleware) {
       && !calendarCapabilities(req.user, input.calendarId).canCreate) {
       return res.status(403).json({ success: false, error: 'No puedes mover el evento a ese calendario' });
     }
+    if (!readSettings().googleIntegrationEnabled) input.syncWithGoogle = false;
     const conflicts = visibleConflicts(req.user, detectConflicts(input, id));
     const seriesScope = previous.series_id ? (input.seriesScope || 'single') : 'single';
     const targets = seriesScope === 'single' ? [previous] : db.prepare(`

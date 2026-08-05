@@ -345,14 +345,16 @@ Referencia: [Sensitive Scope Verification](https://developers.google.com/identit
 
 No es suficiente copiar únicamente calendar-manager.sqlite mientras el proceso está escribiendo, porque SQLite utiliza WAL.
 
-Se recomienda:
+El proyecto resuelve esto con `VACUUM INTO`, que produce un snapshot íntegro de una base en uso y en un solo archivo, sin detener el servicio. Está implementado en `src/backup.js` y expuesto como `npm run backup` y `npm run restore`.
 
-1. utilizar los snapshots del disco de la plataforma;
-2. ejecutar una copia consistente mediante la API de backup de SQLite;
+Quedan a cargo del despliegue:
+
+1. utilizar además los snapshots del disco de la plataforma;
+2. apuntar BACKUP_PATH fuera del volumen de la aplicación;
 3. guardar copias adicionales fuera del proveedor;
-4. cifrar los respaldos;
-5. limitar acceso;
-6. documentar y probar la restauración.
+4. cifrar los respaldos en reposo;
+5. limitar el acceso a la carpeta de respaldos;
+6. ejecutar periódicamente la restauración de prueba.
 
 ### 7.2 Frecuencia sugerida
 

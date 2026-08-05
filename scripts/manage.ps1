@@ -16,10 +16,13 @@ param(
     'status',
     'backup-db',
     'delete-db',
+    'restore-db',
     'reset-blank',
     'seed-demo',
     'create-admin',
     'install-shortcut',
+    'install-backup-task',
+    'remove-backup-task',
     'stop-server',
     'start-server'
   )]
@@ -75,22 +78,28 @@ function Show-Help {
   Write-Host "   Cierra los procesos asociados a src/server.js."
 
   Write-Host "`n4. Respaldar base de datos"
-  Write-Host "   Copia la base de datos en data/backups."
+  Write-Host "   Crea un snapshot consistente en data/backups y rota los antiguos."
 
-  Write-Host "`n5. Eliminar base de datos"
+  Write-Host "`n5. Restaurar desde respaldo"
+  Write-Host "   Devuelve la base al ultimo respaldo. Requiere el servidor detenido."
+
+  Write-Host "`n6. Eliminar base de datos"
   Write-Host "   Borra SQLite y sus archivos auxiliares."
 
-  Write-Host "`n6. Reiniciar en blanco"
+  Write-Host "`n7. Reiniciar en blanco"
   Write-Host "   Detiene el servidor, respalda y borra la base. Al arrancar queda sin usuarios."
 
-  Write-Host "`n7. Cargar datos de demostracion"
+  Write-Host "`n8. Cargar datos de demostracion"
   Write-Host "   Crea usuarios, calendarios y eventos de ejemplo (admin@empresa.com / Demo123!)."
 
-  Write-Host "`n8. Crear administrador"
+  Write-Host "`n9. Crear administrador"
   Write-Host "   Registra o restablece una cuenta de Administrador."
 
-  Write-Host "`n9. Crear acceso directo"
-  Write-Host "   Pone un icono en el escritorio que abre la aplicacion con doble clic."
+  Write-Host "`n10. Crear acceso directo"
+  Write-Host "    Pone un icono en el escritorio que abre la aplicacion con doble clic."
+
+  Write-Host "`n11. Programar respaldo diario"
+  Write-Host "    Registra la tarea de Windows que respalda aunque la app este cerrada."
 
   Write-Host "`n0. Salir"
 }
@@ -127,26 +136,32 @@ function Show-Status {
   }
 }
 
+# Delega en scripts/backup.js, que usa VACUUM INTO. Copiar el archivo con
+# Copy-Item mientras el servidor escribe puede dejar fuera lo que vive en el WAL.
 function Backup-Db {
-  $files = @(Get-DbFiles)
-
-  if ($files.Count -eq 0) {
+  if (@(Get-DbFiles).Count -eq 0) {
     Write-Host "No hay base de datos para respaldar." -ForegroundColor Yellow
     return
   }
 
-  $backupDir = Join-Path (Get-ProjectRoot) 'data\backups'
-  New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+  Invoke-Npm @('run', 'backup')
+}
 
-  $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-
-  foreach ($file in $files) {
-    $destination = Join-Path $backupDir "$($file.Name).$stamp.bak"
-    Copy-Item $file.FullName $destination -Force
-
-    Write-Host "Respaldo creado:" -ForegroundColor Green
-    Write-Host "  $destination"
+function Restore-Db {
+  if (@(Get-ServerProcesses).Count -gt 0) {
+    Write-Host "Detén el servidor antes de restaurar." -ForegroundColor Red
+    Write-Host "  .\scripts\manage.ps1 -Action stop-server"
+    return
   }
+
+  $node = Get-Command node.exe -ErrorAction SilentlyContinue
+
+  if (-not $node) {
+    Write-Host "No se encontró Node.js." -ForegroundColor Red
+    return
+  }
+
+  & $node.Source (Join-Path $PSScriptRoot 'restore.js') '--latest'
 }
 
 function Delete-Db {
@@ -223,6 +238,60 @@ function Create-Admin {
   Invoke-Npm $arguments
 }
 
+$BackupTaskName = 'Gestor de Calendarios - Respaldo'
+
+# Segunda vía de disparo, además del snapshot que hace el servidor al arrancar:
+# la tarea corre aunque la aplicación esté cerrada.
+function Install-BackupTask {
+  $node = Get-Command node.exe -ErrorAction SilentlyContinue
+
+  if (-not $node) {
+    Write-Host "No se encontró Node.js." -ForegroundColor Red
+    return
+  }
+
+  $root = Get-ProjectRoot
+  $script = Join-Path $root 'scripts\backup.js'
+
+  $action = New-ScheduledTaskAction `
+    -Execute $node.Source `
+    -Argument ('"{0}"' -f $script) `
+    -WorkingDirectory $root
+
+  $trigger = New-ScheduledTaskTrigger -Daily -At '13:00'
+
+  # StartWhenAvailable recupera la ejecución si el equipo estaba apagado.
+  $settings = New-ScheduledTaskSettingsSet `
+    -StartWhenAvailable `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 10)
+
+  Register-ScheduledTask `
+    -TaskName $BackupTaskName `
+    -Action $action `
+    -Trigger $trigger `
+    -Settings $settings `
+    -Description 'Respaldo diario de la base de datos del Gestor Central de Calendarios.' `
+    -Force | Out-Null
+
+  Write-Host "Tarea programada creada: $BackupTaskName" -ForegroundColor Green
+  Write-Host "  diaria a las 13:00, se recupera si el equipo estaba apagado"
+  Write-Host "  puedes verla en el Programador de tareas de Windows"
+}
+
+function Uninstall-BackupTask {
+  $task = Get-ScheduledTask -TaskName $BackupTaskName -ErrorAction SilentlyContinue
+
+  if (-not $task) {
+    Write-Host "No existe la tarea programada de respaldo." -ForegroundColor Yellow
+    return
+  }
+
+  Unregister-ScheduledTask -TaskName $BackupTaskName -Confirm:$false
+  Write-Host "Tarea programada eliminada." -ForegroundColor Green
+}
+
 function Install-Shortcut {
   $script = Join-Path $PSScriptRoot 'install-shortcut.ps1'
 
@@ -278,10 +347,13 @@ function Invoke-Action {
     'status'       { Show-Status }
     'backup-db'    { Backup-Db }
     'delete-db'    { Delete-Db }
+    'restore-db'   { Restore-Db }
     'reset-blank'  { Reset-Blank }
     'seed-demo'    { Seed-Demo }
     'create-admin' { Create-Admin }
     'install-shortcut' { Install-Shortcut }
+    'install-backup-task' { Install-BackupTask }
+    'remove-backup-task'  { Uninstall-BackupTask }
     'stop-server'  { Stop-Server }
     'start-server' { Start-Server }
   }
@@ -303,16 +375,18 @@ do {
   }
 
   switch ($option) {
-    '1' { Show-Status }
-    '2' { Start-Server }
-    '3' { Stop-Server }
-    '4' { Backup-Db }
-    '5' { Delete-Db }
-    '6' { Reset-Blank }
-    '7' { Seed-Demo }
-    '8' { Create-Admin }
-    '9' { Install-Shortcut }
-    '0' { return }
+    '1'  { Show-Status }
+    '2'  { Start-Server }
+    '3'  { Stop-Server }
+    '4'  { Backup-Db }
+    '5'  { Restore-Db }
+    '6'  { Delete-Db }
+    '7'  { Reset-Blank }
+    '8'  { Seed-Demo }
+    '9'  { Create-Admin }
+    '10' { Install-Shortcut }
+    '11' { Install-BackupTask }
+    '0'  { return }
     default {
       Write-Host "Opción inválida." -ForegroundColor Red
     }
