@@ -1072,6 +1072,11 @@ function openEventModal(event = null, date = null) {
   state.openEvent = event;
   $('#share-event-wrapper').hidden = !event;
   toggleShareMenu(false);
+  // Los adjuntos cuelgan del evento, así que no hay dónde ponerlos hasta que se
+  // haya guardado. Se ven en modo consulta; solo el botón de añadir depende de edición.
+  $('#attachments-field').hidden = !event;
+  $('#attachment-list').innerHTML = '';
+  if (event) loadAttachments(event.id);
   form.querySelector('[type=submit]').hidden = readOnly;
   $('#modal-title').textContent = readOnly ? 'Detalle del evento' : event ? 'Editar evento' : 'Nuevo evento';
   $('#recurrence-fields').hidden = Boolean(event);
@@ -1190,6 +1195,82 @@ async function cancelEvent() {
   closeEventModal();
   await refreshWorkspace();
   toast(data.occurrencesCanceled > 1 ? `${data.occurrencesCanceled} ocurrencias canceladas` : 'Evento cancelado');
+}
+
+// --- Archivos adjuntos -------------------------------------------------------
+
+function formatBytes(bytes) {
+  return bytes >= 1024 * 1024
+    ? `${(bytes / 1024 / 1024).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+function attachmentCard(attachment, canEdit) {
+  const isImage = attachment.mimeType.startsWith('image/');
+  const url = `/api/attachments/${attachment.id}`;
+  const preview = isImage
+    ? `<img src="${url}" alt="${escapeHtml(attachment.filename)}" loading="lazy">`
+    : '<span class="attachment-file">PDF</span>';
+  return `
+    <figure class="attachment-item">
+      <a href="${url}" target="_blank" rel="noopener" title="Abrir ${escapeHtml(attachment.filename)}">${preview}</a>
+      <figcaption>
+        <span class="attachment-name">${escapeHtml(attachment.filename)}</span>
+        <small>${formatBytes(attachment.size)}</small>
+      </figcaption>
+      ${canEdit ? `<button class="attachment-delete icon-button" type="button" data-attachment-id="${attachment.id}"
+        aria-label="Eliminar ${escapeHtml(attachment.filename)}"><svg><use href="#icon-close"></use></svg></button>` : ''}
+    </figure>`;
+}
+
+function renderAttachments(attachments) {
+  const canEdit = $('#event-form').dataset.readonly !== 'true';
+  $('#add-attachment').hidden = !canEdit;
+  $('#attachment-list').innerHTML = attachments.length
+    ? attachments.map((item) => attachmentCard(item, canEdit)).join('')
+    : '<p class="muted">Todavía no hay archivos.</p>';
+}
+
+async function loadAttachments(eventId) {
+  if (!eventId) return;
+  try {
+    const data = await api(`/api/events/${eventId}/attachments`);
+    state.attachments = data.attachments;
+    renderAttachments(data.attachments);
+  } catch (error) {
+    $('#attachment-list').innerHTML = `<p class="muted">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+async function uploadAttachment(file) {
+  const eventId = $('#event-form').elements.id.value;
+  if (!eventId || !file) return;
+
+  const button = $('#add-attachment');
+  button.disabled = true;
+  button.textContent = 'Subiendo…';
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    await apiClient.upload(`/events/${eventId}/attachments`, form);
+    await loadAttachments(eventId);
+    toast('Archivo adjuntado');
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Añadir archivo';
+  }
+}
+
+async function deleteAttachment(id) {
+  try {
+    await api(`/api/attachments/${id}`, { method: 'DELETE' });
+    await loadAttachments($('#event-form').elements.id.value);
+    toast('Archivo eliminado');
+  } catch (error) {
+    toast(error.message);
+  }
 }
 
 // --- Compartir un evento -----------------------------------------------------
@@ -1547,6 +1628,17 @@ $('#cancel-modal').addEventListener('click', closeEventModal);
 $('#event-form').addEventListener('submit', saveEvent);
 $('#delete-event').addEventListener('click', cancelEvent);
 $('#sync-event').addEventListener('click', syncCurrentEvent);
+$('#add-attachment').addEventListener('click', () => $('#attachment-input').click());
+$('#attachment-input').addEventListener('change', (event) => {
+  const [file] = event.target.files;
+  // Se limpia el valor para que volver a elegir el mismo archivo dispare el evento.
+  event.target.value = '';
+  if (file) uploadAttachment(file);
+});
+$('#attachment-list').addEventListener('click', (event) => {
+  const button = event.target.closest('.attachment-delete');
+  if (button) deleteAttachment(button.dataset.attachmentId);
+});
 $('#share-event').addEventListener('click', (event) => {
   event.stopPropagation();
   shareCurrentEvent();

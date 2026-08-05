@@ -42,4 +42,21 @@ export class ApiClient {
   delete(path) {
     return this.request(path, { method: 'DELETE' });
   }
+
+  // El navegador debe fijar el Content-Type con su boundary: si lo ponemos
+  // nosotros, el servidor no puede delimitar las partes del formulario.
+  async upload(path, formData) {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: 'POST',
+      headers: this.csrfToken ? { 'X-CSRF-Token': this.csrfToken } : {},
+      body: formData
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      const error = new Error(data.error || 'No fue posible subir el archivo');
+      error.status = response.status;
+      throw error;
+    }
+    return data;
+  }
 }

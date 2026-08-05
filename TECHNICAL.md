@@ -48,7 +48,7 @@ No están completos los participantes, invitaciones, RSVP, calendarios públicos
 | Frontend | HTML, CSS y JavaScript nativo | SPA sin compilación ni framework |
 | Integración | Google Calendar API v3 | OAuth 2.0 y sincronización |
 | Seguridad criptográfica | node:crypto | Scrypt, tokens aleatorios y AES-256-GCM |
-| Pruebas | node:test | Pruebas unitarias |
+| Pruebas | node:test | Pruebas unitarias y de integración sobre el servidor real |
 
 La aplicación es un monolito modular de una sola instancia. No utiliza ORM, TypeScript, bundler ni motor de colas. Las sesiones se persisten en SQLite.
 
@@ -88,10 +88,11 @@ src/server.js realiza el arranque:
 2. inicializa SQLite y los datos base;
 3. configura Express;
 4. publica public/;
-5. registra las rutas de sesión, calendarios, agenda, administración, configuración, recordatorios, reportes e integraciones;
+5. registra las rutas de sesión, calendarios, agenda, adjuntos, administración, configuración, recordatorios, reportes e integraciones;
 6. crea el proveedor de Google y el servicio de sincronización;
 7. inicia el servidor HTTP;
-8. inicia el scheduler de recordatorios.
+8. inicia el scheduler de recordatorios;
+9. inicia el scheduler de respaldos, que crea un snapshot al arrancar y cada 24 h.
 
 Todos los módulos comparten la misma conexión síncrona a SQLite.
 
@@ -120,13 +121,17 @@ src/
 ├── database.js
 ├── auth.js
 ├── authorization.js
+├── security.js
+├── rate-limit.js
 ├── administration.js
 ├── events.js
+├── attachments.js
 ├── recurrence.js
 ├── settings.js
 ├── reminders.js
 ├── external-notifications.js
 ├── reports.js
+├── backup.js
 └── integrations/
     ├── calendar-provider.js
     ├── google-calendar.provider.js
@@ -149,14 +154,30 @@ public/
     ├── services/
     └── components/
 
+scripts/
+├── install.ps1
+├── uninstall.ps1
+├── manage.ps1
+├── install-shortcut.ps1
+├── start-app.ps1
+├── create-admin.js
+├── seed-demo.js
+├── backup.js
+└── restore.js
+
 tests/
 ├── administration.test.js
+├── attachments.test.js
 ├── authorization.test.js
+├── backup.test.js
 ├── events.test.js
 ├── integrations.test.js
 ├── recurrence-reports.test.js
+├── security.test.js
 └── settings-reminders.test.js
 ~~~
+
+Los archivos de `scripts/` no participan del proceso servidor. Los `.js` se ejecutan con Node contra la misma configuración y base que la aplicación; los `.ps1` cubren la instalación, la administración local y el arranque en Windows.
 
 ### 5.1 Responsabilidades
 
@@ -170,11 +191,13 @@ tests/
 | authorization.js | Visibilidad y capacidades por calendario |
 | administration.js | Calendarios, usuarios, departamentos y permisos |
 | events.js | Entradas de calendario, consultas de agenda, conflictos y resumen |
+| attachments.js | Subida, entrega y borrado de los archivos de cada entrada |
 | recurrence.js | Expandir recurrencias en entradas individuales |
 | settings.js | Preferencias globales y recursos reservables |
 | reminders.js | Recordatorios y bandeja interna |
 | external-notifications.js | Entrega mediante webhooks |
 | reports.js | Agregados de cumplimiento y carga por calendario |
+| backup.js | Snapshots consistentes, escritura en varios destinos y rotación |
 | integrations/* | OAuth, credenciales, mapeo y sincronización externa |
 
 Aunque el archivo se llama events.js, sus consultas están limitadas por accessibleCalendarIds(). Técnicamente es el módulo de contenido y proyección de agenda de los calendarios autorizados.
@@ -302,6 +325,18 @@ El bootstrap solo actúa sobre la tabla de usuarios si está vacía y se control
 - `demo`: agrega usuarios, calendarios, eventos, permisos y recursos de ejemplo. `config.js` rechaza este modo cuando `NODE_ENV=production`.
 
 En `blank` y `base` el único usuario creado es el Administrador definido por `INITIAL_ADMIN_EMAIL` e `INITIAL_ADMIN_PASSWORD`. Si faltan, en producción el arranque falla y en desarrollo la base queda sin usuarios con un aviso en consola. `scripts/create-admin.js` cubre el mismo caso desde la línea de comandos. La configuración predeterminada se completa de forma idempotente.
+
+## 7.1 Archivos adjuntos
+
+Los archivos de cada evento se guardan como `BLOB` en `event_attachments`, con clave foránea `ON DELETE CASCADE` hacia `events`. No se escriben en el sistema de archivos.
+
+El motivo es la continuidad: los respaldos son un `VACUUM INTO` de la base, de modo que los adjuntos quedan cubiertos sin trabajo adicional y una restauración devuelve los eventos junto con sus archivos. A cambio, la base crece con cada adjunto y cada snapshot la copia entera.
+
+El tipo se determina por firma de bytes en `detectMimeType()`, no por el `Content-Type` recibido, y es el que se usa al servir el archivo. `safeFilename()` retira separadores de ruta y caracteres de control antes de almacenar el nombre, que solo se emplea para mostrar y descargar.
+
+La subida es el único punto de la API que acepta `multipart/form-data`. `src/security.js` mantiene la exigencia de `application/json` para el resto de mutaciones y limita la excepción por expresión regular a `/events/<id>/attachments`. El cuerpo llega sin parsear mediante `express.raw()` y se interpreta con `Response.formData()`, sin dependencias externas.
+
+Límites vigentes: 5 MB por archivo, 20 archivos por evento y los formatos PNG, JPEG, GIF, WEBP y PDF.
 
 ## 8. Gobierno y acceso a calendarios
 

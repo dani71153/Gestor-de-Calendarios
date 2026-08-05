@@ -497,6 +497,14 @@ INTEGRATION_ENCRYPTION_KEY=</pre>
           <label class="span-2">Descripción
             <textarea name="description" rows="3" placeholder="Notas y contexto del evento"></textarea>
           </label>
+          <section id="attachments-field" class="attachments-field span-2" hidden>
+            <div class="attachments-heading">
+              <span><strong>Archivos adjuntos</strong><small>Flyers, confirmaciones o documentos del evento.</small></span>
+              <button id="add-attachment" class="button ghost" type="button">Añadir archivo</button>
+            </div>
+            <input id="attachment-input" type="file" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf" hidden>
+            <div id="attachment-list" class="attachment-list"></div>
+          </section>
           <label id="sync-with-google-field" class="checkbox-row span-2">
             <input name="syncWithGoogle" type="checkbox"> Marcar para sincronizar con Google Calendar
           </label>

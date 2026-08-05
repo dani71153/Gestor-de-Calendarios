@@ -219,6 +219,17 @@ function initializeDatabase(options = {}) {
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS event_attachments (
+      id INTEGER PRIMARY KEY,
+      event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+      filename TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      data BLOB NOT NULL,
+      uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS notifications (
       id INTEGER PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -284,6 +295,7 @@ function initializeDatabase(options = {}) {
     CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at);
     CREATE INDEX IF NOT EXISTS idx_event_reminders_due ON event_reminders(status, event_id);
     CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, read_at, created_at);
+    CREATE INDEX IF NOT EXISTS idx_event_attachments_event ON event_attachments(event_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_sync_logs_event ON sync_logs(event_id, created_at);
   `);
 

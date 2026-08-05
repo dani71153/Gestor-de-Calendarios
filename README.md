@@ -193,14 +193,44 @@ El servidor omite el snapshot si ya hay uno de hace menos de seis horas, para qu
 
 #### Restaurar
 
+Tres pasos, en este orden:
+
 ```powershell
-npm run restore -- --latest                  # desde el respaldo más reciente
-npm run restore -- --file "data\backups\..." # desde uno concreto
+.\scripts\manage.ps1 -Action stop-server    # 1. detener el servidor
+npm run backup -- --list                    # 2. ver qué respaldos hay
+npm run restore -- --latest                 # 3. restaurar
 ```
 
-Antes de sustituir nada verifica que el respaldo pase `PRAGMA integrity_check` y contenga las tablas esperadas, y guarda un snapshot del estado actual con el prefijo `previo-a-restaurar`, de modo que una restauración equivocada también se pueda deshacer.
+Desde el menú interactivo es la opción **5, Restaurar desde respaldo**, que además comprueba por ti que el servidor no esté activo.
+
+Para recuperar uno concreto en lugar del más reciente:
+
+```powershell
+npm run restore -- --file "data\backups\calendar-manager-2026-08-05T13-30-12.sqlite"
+npm run restore -- --latest --yes           # sin confirmación, para scripts
+```
+
+Así se ve una restauración real:
+
+```text
+Respaldo: data\backups\calendar-manager-2026-08-05T13-30-12.sqlite
+  íntegro, contiene 1 usuario(s), 1 calendario(s), 1 evento(s)
+Se sustituirá: data\calendar-manager.sqlite
+¿Continuar con la restauración? (s/N) s
+Estado actual guardado en: data\backups\calendar-manager-previo-a-restaurar-2026-08-05T13-42-08.sqlite
+Restauración completada. Arranca el servidor para comprobarlo.
+```
+
+Antes de tocar nada hace cuatro cosas:
+
+- **Verifica el respaldo** con `PRAGMA integrity_check` y comprobando que estén las tablas esperadas. Un archivo corrupto se rechaza en lugar de sustituir una base buena por una inservible.
+- **Muestra qué contiene** —usuarios, calendarios y eventos— para que puedas confirmar que es el respaldo que crees antes de aceptar.
+- **Guarda el estado actual** con el prefijo `previo-a-restaurar`. Si restauras el respaldo equivocado, lo que había sigue estando: una restauración también se deshace.
+- **Elimina los archivos `-wal` y `-shm` anteriores**, que de otro modo SQLite intentaría aplicar sobre una base a la que ya no corresponden.
 
 El servidor debe estar detenido. En Windows el archivo en uso no se puede reemplazar, así que la operación falla de forma segura en lugar de dejar la base a medias.
+
+**No hay un botón de restaurar dentro de la aplicación, y es deliberado.** Restaurar sustituye el archivo que el servidor tiene abierto; aunque el sistema operativo lo permitiera, cambiar la base bajo un proceso en marcha dejaría sesiones apuntando a usuarios inexistentes y datos en memoria desincronizados. Hacerlo desde la interfaz exigiría que el servidor se detuviera, restaurara y volviera a arrancar solo, mucha más maquinaria para algo que se hace en contadas ocasiones y con alguien delante.
 
 #### Destinos
 
@@ -225,6 +255,8 @@ El botón **Respaldar ahora** ejecuta el respaldo en todos los destinos y refres
 La lista de Configuración manda sobre `BACKUP_PATH`. Esa variable queda como destino de partida para instalaciones que nunca hayan tocado la pantalla, y la retención de Configuración sustituye a `BACKUP_RETENTION` desde el primer arranque.
 
 **Con un único destino local, un disco dañado se lleva la base y sus copias a la vez.** Añadir un segundo destino en una carpeta sincronizada lo resuelve: el snapshot es inmutable una vez escrito, así que sincronizarlo es seguro, cosa que no ocurre con la base viva.
+
+Los [archivos adjuntos](#archivos-adjuntos) viajan dentro del snapshot, porque se guardan en la propia base: restaurar devuelve los eventos con sus flyers.
 
 `INTEGRATION_ENCRYPTION_KEY` no viaja en los snapshots, y sin ella los tokens de Google guardados dentro son indescifrables. Guarda una copia del `.env` **una sola vez** en un gestor de contraseñas o sobre físico, no junto a cada respaldo: la clave al lado de los datos que cifra anula el cifrado.
 
@@ -289,6 +321,7 @@ Después del primer inicio de producción, cambia la contraseña del Administrad
 - Detección de conflictos por responsable, ubicación, sala o recurso.
 - Recordatorios por evento y centro de notificaciones internas.
 - Lectura, eliminación individual y limpieza completa de notificaciones.
+- Archivos adjuntos por evento: flyers, confirmaciones y documentos.
 - Contador de notificaciones sin leer en el título y el icono de la pestaña.
 - Marcado automático de eventos vencidos.
 - Auditoría de cambios en la base de datos.
@@ -406,6 +439,32 @@ El estado de Integraciones muestra la fecha, el calendario y el resultado de la 
 - `public/app.js`: coordinación de vistas y acciones.
 
 Esta separación permite cambiar la apariencia sin modificar la integración ni las reglas de negocio.
+
+## Archivos adjuntos
+
+Cada evento admite archivos: el flyer que llegó por Instagram, una confirmación de reserva o un documento. Se gestionan desde la sección **Archivos adjuntos** del propio evento, que aparece una vez guardado —antes no existe el evento al que colgarlos—. Las imágenes se muestran como miniatura y se abren en una pestaña nueva al pulsarlas.
+
+| Límite | Valor |
+| --- | --- |
+| Tamaño por archivo | 5 MB |
+| Archivos por evento | 20 |
+| Formatos | PNG, JPEG, GIF, WEBP y PDF |
+
+Los adjuntos se ven en modo consulta; añadirlos o eliminarlos requiere permiso de edición sobre el evento. Al eliminar un evento sus archivos desaparecen con él.
+
+### Se guardan dentro de la base de datos
+
+Los archivos son columnas `BLOB` en la tabla `event_attachments`, no ficheros en una carpeta. La razón principal es que **así los cubre el respaldo**: archivos en disco habrían quedado fuera del `VACUUM INTO` sin avisar, y restaurar habría devuelto los eventos sin sus flyers. Además el borrado es transaccional, no quedan huérfanos, y no hay rutas ni permisos de carpeta que administrar en cada equipo.
+
+El coste es que la base crece y cada snapshot la copia entera. Cien flyers de 500 KB la llevan a unos 50 MB, y con 30 copias retenidas son 1,5 GB en disco. Si el volumen llega a molestar, las salidas son bajar `BACKUP_RETENTION` o mover los archivos a disco extendiendo el respaldo para que los incluya.
+
+### Cómo se valida lo que se sube
+
+El tipo se deduce de los **primeros bytes del archivo**, no del `Content-Type` que declara el navegador, que lo elige quien sube. Un ejecutable renombrado a `.png` se rechaza. Al servirlo se usa el tipo detectado al subirlo, nunca el declarado entonces, y el nombre se limpia de separadores de ruta antes de guardarlo.
+
+Subir archivos obliga a `multipart/form-data`, mientras que el resto de la API exige `application/json` como defensa CSRF. Esa excepción está acotada por expresión regular a `/api/events/<número>/attachments` en [`src/security.js`](src/security.js): cualquier otra ruta sigue rechazando multipart. Lo que protege la subida es la comprobación de `Origin`, `Sec-Fetch-Site` y el token CSRF, que un formulario cross-site tampoco supera.
+
+El formulario se interpreta con `Response.formData()` de la plataforma, así que **no se añadió ninguna dependencia**: el proyecto sigue dependiendo solo de `express`.
 
 ## Series, reportes y avisos externos
 

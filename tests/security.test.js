@@ -6,7 +6,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { validateProductionEnvironment, resolveCookieSecure } = require('../src/config');
 const { AttemptLimiter } = require('../src/rate-limit');
-const { securityHeaders, requireSameOrigin } = require('../src/security');
+const { securityHeaders, requireSameOrigin, acceptsBody } = require('../src/security');
 
 test('producción exige base explícita y secretos fuertes independientes', () => {
   const errors = validateProductionEnvironment({ NODE_ENV: 'production' });
@@ -75,7 +75,13 @@ test('la protección de origen rechaza mutaciones cross-site', () => {
 });
 
 test('las mutaciones rechazan cuerpos que no sean JSON', () => {
-  const req = { method: 'POST', is: () => false };
+  // Con cuerpo presente: es el caso que la regla debe rechazar.
+  const req = {
+    method: 'POST',
+    path: '/events',
+    is: () => false,
+    get: (name) => (name === 'content-length' ? '32' : undefined)
+  };
   let response;
   const res = {
     status(code) { response = { code }; return this; },
@@ -83,6 +89,32 @@ test('las mutaciones rechazan cuerpos que no sean JSON', () => {
   };
   requireSameOrigin(req, res, () => assert.fail('No debe aceptar otro Content-Type'));
   assert.equal(response.code, 415);
+});
+
+test('una mutacion sin cuerpo no se rechaza por el tipo de contenido', () => {
+  // req.is() devuelve null sin cuerpo: exigir JSON rompia todos los DELETE.
+  const sinCuerpo = { method: 'DELETE', path: '/notifications/1', get: () => undefined, is: () => null };
+  assert.equal(acceptsBody(sinCuerpo), true);
+
+  const conCuerpoNoJson = {
+    method: 'POST',
+    path: '/events',
+    get: (name) => (name === 'content-length' ? '20' : undefined),
+    is: (type) => (type === 'application/json' ? false : null)
+  };
+  assert.equal(acceptsBody(conCuerpoNoJson), false);
+});
+
+test('multipart solo se admite en la ruta de adjuntos', () => {
+  const peticion = (path) => ({
+    method: 'POST',
+    path,
+    get: (name) => (name === 'content-length' ? '5000' : undefined),
+    is: (type) => type === 'multipart/form-data'
+  });
+  assert.equal(acceptsBody(peticion('/events/7/attachments')), true);
+  assert.equal(acceptsBody(peticion('/events')), false);
+  assert.equal(acceptsBody(peticion('/settings')), false);
 });
 
 test('las cabeceras de seguridad incluyen CSP, anti-framing y HSTS en producción', () => {

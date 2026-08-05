@@ -1,5 +1,28 @@
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
+// Exigir JSON en las mutaciones es una defensa CSRF: un formulario HTML no puede
+// emitir application/json. Subir archivos obliga a multipart, así que se admite
+// únicamente en esa ruta. Lo que sigue protegiéndola es la comprobación de Origin,
+// Sec-Fetch-Site y el token CSRF, que un formulario cross-site tampoco supera.
+const MULTIPART_PATHS = [/^\/events\/\d+\/attachments\/?$/];
+
+// req.is() devuelve null cuando la petición no lleva cuerpo, de modo que un
+// DELETE sin cuerpo fallaba la comprobación de tipo aunque fuese legítimo.
+function hasBody(req) {
+  if (req.get('transfer-encoding') !== undefined) return true;
+  return Number(req.get('content-length') || 0) > 0;
+}
+
+function acceptsBody(req) {
+  // Sin cuerpo no hay nada que tipar, y el vector que cubre esta regla —un
+  // formulario HTML cross-site— siempre envía uno. Origin, Sec-Fetch-Site y el
+  // token CSRF siguen aplicándose igual.
+  if (!hasBody(req)) return true;
+  if (req.is('application/json')) return true;
+  return MULTIPART_PATHS.some((pattern) => pattern.test(req.path))
+    && Boolean(req.is('multipart/form-data'));
+}
+
 function securityHeaders(req, res, next) {
   res.setHeader('Content-Security-Policy', [
     "default-src 'self'",
@@ -28,7 +51,7 @@ function securityHeaders(req, res, next) {
 
 function requireSameOrigin(req, res, next) {
   if (SAFE_METHODS.has(req.method)) return next();
-  if (!req.is('application/json')) {
+  if (!acceptsBody(req)) {
     return res.status(415).json({ success: false, error: 'Content-Type debe ser application/json' });
   }
   const origin = req.get('origin');
@@ -40,4 +63,4 @@ function requireSameOrigin(req, res, next) {
   next();
 }
 
-module.exports = { securityHeaders, requireSameOrigin };
+module.exports = { securityHeaders, requireSameOrigin, acceptsBody };

@@ -5,6 +5,7 @@ const { initializeDatabase } = require('./database');
 const { authMiddleware, csrfMiddleware, registerAuthRoutes } = require('./auth');
 const { securityHeaders, requireSameOrigin } = require('./security');
 const { registerEventRoutes } = require('./events');
+const { registerAttachmentRoutes, MAX_ATTACHMENT_BYTES } = require('./attachments');
 const { registerAdministrationRoutes } = require('./administration');
 const { registerSettingsRoutes } = require('./settings');
 const { registerReminderRoutes, startReminderScheduler } = require('./reminders');
@@ -32,6 +33,13 @@ app.get('/api/health', (req, res) => {
 
 registerAuthRoutes(app);
 registerEventRoutes(app, authMiddleware);
+// El cuerpo multipart llega sin parsear a la ruta de subida, que lo interpreta
+// con Response.formData(). El margen sobre el límite cubre las cabeceras del
+// propio formulario, para que el rechazo por tamaño lo dé la ruta con su mensaje.
+registerAttachmentRoutes(app, authMiddleware, express.raw({
+  type: 'multipart/form-data',
+  limit: MAX_ATTACHMENT_BYTES + 512 * 1024
+}));
 registerAdministrationRoutes(app, authMiddleware);
 registerSettingsRoutes(app, authMiddleware);
 registerReminderRoutes(app, authMiddleware);
@@ -53,6 +61,17 @@ app.use('/api', (req, res) => {
 });
 
 app.use((error, req, res, next) => {
+  // Los errores del parser de cuerpo traen su propio código y describen algo que
+  // hizo el cliente; devolverlos como 500 ocultaba el motivo real.
+  if (error?.type === 'entity.too.large') {
+    return res.status(413).json({
+      success: false,
+      error: `El archivo supera el límite de ${Math.round(MAX_ATTACHMENT_BYTES / 1024 / 1024)} MB`
+    });
+  }
+  if (error?.type === 'entity.parse.failed') {
+    return res.status(400).json({ success: false, error: 'El cuerpo de la solicitud no es JSON válido' });
+  }
   console.error(error);
   res.status(500).json({ success: false, error: 'Error interno del servidor' });
 });
