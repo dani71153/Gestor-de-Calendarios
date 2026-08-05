@@ -43,6 +43,10 @@ const state = {
   settingsCanEdit: false,
   notifications: [],
   unreadNotifications: 0,
+  attachments: [],
+  // Archivos elegidos antes de que el evento exista, a la espera de su id.
+  pendingAttachments: [],
+  pendingUrls: [],
   integration: null,
   adminUsers: [],
   adminCalendars: [],
@@ -1072,11 +1076,14 @@ function openEventModal(event = null, date = null) {
   state.openEvent = event;
   $('#share-event-wrapper').hidden = !event;
   toggleShareMenu(false);
-  // Los adjuntos cuelgan del evento, así que no hay dónde ponerlos hasta que se
-  // haya guardado. Se ven en modo consulta; solo el botón de añadir depende de edición.
-  $('#attachments-field').hidden = !event;
-  $('#attachment-list').innerHTML = '';
+  // Se ven también en modo consulta; solo añadir y quitar dependen de edición.
+  // En un evento nuevo la sección está disponible desde el principio: los
+  // archivos quedan en espera hasta que el guardado devuelve el id.
+  state.pendingAttachments = [];
+  state.attachments = [];
+  $('#attachments-field').hidden = readOnly && !event;
   if (event) loadAttachments(event.id);
+  else renderAttachments([]);
   form.querySelector('[type=submit]').hidden = readOnly;
   $('#modal-title').textContent = readOnly ? 'Detalle del evento' : event ? 'Editar evento' : 'Nuevo evento';
   $('#recurrence-fields').hidden = Boolean(event);
@@ -1131,6 +1138,32 @@ async function refreshWorkspace() {
   await loadDashboard();
 }
 
+// Devuelve false solo si hay conflictos y la persona decide no continuar. Un
+// fallo de la comprobación no bloquea el guardado: el evento importa más que
+// el aviso, y la respuesta del servidor volverá a informar del cruce.
+async function confirmConflicts(input) {
+  let data;
+  try {
+    data = await api('/api/events/check-conflicts', { method: 'POST', body: JSON.stringify(input) });
+  } catch {
+    return true;
+  }
+  if (!data.hasConflict) return true;
+
+  const detalle = data.conflicts.slice(0, 5).map((conflict) => {
+    const cuando = formatDate(conflict.startDatetime, {
+      day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit'
+    });
+    return `• ${conflict.title} (${cuando})\n  ${(conflict.reasons || []).join(' · ')}`;
+  }).join('\n');
+  const resto = data.conflicts.length > 5 ? `\n…y ${data.conflicts.length - 5} más.` : '';
+
+  return confirm(
+    `Este horario cruza con ${data.conflicts.length} evento(s) existentes:\n\n${detalle}${resto}`
+    + '\n\n¿Guardar de todos modos?'
+  );
+}
+
 async function saveEvent(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -1152,9 +1185,22 @@ async function saveEvent(event) {
   };
   try {
     const id = values.id;
+
+    // El panel de conflictos avisa mientras se rellena el formulario, pero es
+    // pasivo y queda fuera de la vista al desplazarse. Antes de guardar se
+    // vuelve a preguntar al servidor y se exige una confirmación explícita:
+    // reservar dos veces a la misma persona no debe poder hacerse sin querer.
+    if (!await confirmConflicts({ ...input, id: id ? Number(id) : null })) return;
+
     const data = await api(id ? `/api/events/${id}` : '/api/events', {
       method: id ? 'PUT' : 'POST', body: JSON.stringify(input)
     });
+    // Los archivos en espera se suben ahora que el evento ya tiene id. Si alguno
+    // falla no se descarta el evento, que ya está creado: se informa y punto.
+    let attachmentErrors = [];
+    if (!id && state.pendingAttachments.length) {
+      attachmentErrors = await uploadPendingAttachments(data.event.id);
+    }
     let syncError = null;
     if (input.syncWithGoogle) {
       try {
@@ -1165,7 +1211,9 @@ async function saveEvent(event) {
     }
     closeEventModal();
     await refreshWorkspace();
-    if (syncError) {
+    if (attachmentErrors.length) {
+      toast(`Evento guardado, pero ${attachmentErrors.length} archivo(s) no se adjuntaron: ${attachmentErrors[0]}`);
+    } else if (syncError) {
       toast(`Evento guardado; sincronización pendiente: ${syncError}`);
     } else {
       const seriesNote = data.occurrencesCreated > 1
@@ -1223,12 +1271,72 @@ function attachmentCard(attachment, canEdit) {
     </figure>`;
 }
 
-function renderAttachments(attachments) {
+// Un evento que aún no existe no tiene dónde colgar los archivos, así que se
+// retienen en el navegador y se suben en cuanto el guardado devuelve su id.
+function pendingCard(file, index) {
+  const url = URL.createObjectURL(file);
+  state.pendingUrls.push(url);
+  const preview = file.type.startsWith('image/')
+    ? `<img src="${url}" alt="${escapeHtml(file.name)}">`
+    : '<span class="attachment-file">PDF</span>';
+  return `
+    <figure class="attachment-item is-pending" title="Se adjuntará al guardar el evento">
+      ${preview}
+      <figcaption>
+        <span class="attachment-name">${escapeHtml(file.name)}</span>
+        <small>${formatBytes(file.size)} · al guardar</small>
+      </figcaption>
+      <button class="attachment-delete icon-button" type="button" data-pending-index="${index}"
+        aria-label="Quitar ${escapeHtml(file.name)}"><svg><use href="#icon-close"></use></svg></button>
+    </figure>`;
+}
+
+function renderAttachments(attachments = state.attachments) {
   const canEdit = $('#event-form').dataset.readonly !== 'true';
   $('#add-attachment').hidden = !canEdit;
-  $('#attachment-list').innerHTML = attachments.length
-    ? attachments.map((item) => attachmentCard(item, canEdit)).join('')
-    : '<p class="muted">Todavía no hay archivos.</p>';
+
+  // Las URLs de la tanda anterior dejan de usarse al volver a pintar.
+  state.pendingUrls.forEach((url) => URL.revokeObjectURL(url));
+  state.pendingUrls = [];
+
+  const cards = [
+    ...attachments.map((item) => attachmentCard(item, canEdit)),
+    ...state.pendingAttachments.map((file, index) => pendingCard(file, index))
+  ];
+
+  const vacio = $('#event-form').elements.id.value
+    ? 'Todavía no hay archivos.'
+    : 'Los archivos que añadas se adjuntarán al guardar el evento.';
+  $('#attachment-list').innerHTML = cards.length ? cards.join('') : `<p class="muted">${vacio}</p>`;
+}
+
+// Validación temprana: el servidor vuelve a comprobarlo por firma de bytes, pero
+// avisar aquí evita descubrir el problema después de guardar el evento.
+function rejectionReason(file) {
+  const permitidos = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf'];
+  if (file.size > 5 * 1024 * 1024) return 'El archivo supera el límite de 5 MB';
+  if (!permitidos.includes(file.type)) {
+    return 'Solo se admiten imágenes PNG, JPEG, GIF o WEBP y archivos PDF';
+  }
+  if (state.attachments.length + state.pendingAttachments.length >= 20) {
+    return 'Un evento admite como máximo 20 archivos';
+  }
+  return null;
+}
+
+async function uploadPendingAttachments(eventId) {
+  const fallidos = [];
+  for (const file of state.pendingAttachments) {
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      await apiClient.upload(`/events/${eventId}/attachments`, form);
+    } catch (error) {
+      fallidos.push(`${file.name}: ${error.message}`);
+    }
+  }
+  state.pendingAttachments = [];
+  return fallidos;
 }
 
 async function loadAttachments(eventId) {
@@ -1243,8 +1351,17 @@ async function loadAttachments(eventId) {
 }
 
 async function uploadAttachment(file) {
+  if (!file) return;
+  const motivo = rejectionReason(file);
+  if (motivo) return toast(motivo);
+
   const eventId = $('#event-form').elements.id.value;
-  if (!eventId || !file) return;
+  // Sin evento todavía, el archivo espera y se sube tras el guardado.
+  if (!eventId) {
+    state.pendingAttachments.push(file);
+    renderAttachments();
+    return;
+  }
 
   const button = $('#add-attachment');
   button.disabled = true;
@@ -1637,7 +1754,13 @@ $('#attachment-input').addEventListener('change', (event) => {
 });
 $('#attachment-list').addEventListener('click', (event) => {
   const button = event.target.closest('.attachment-delete');
-  if (button) deleteAttachment(button.dataset.attachmentId);
+  if (!button) return;
+  if (button.dataset.pendingIndex !== undefined) {
+    state.pendingAttachments.splice(Number(button.dataset.pendingIndex), 1);
+    renderAttachments();
+    return;
+  }
+  deleteAttachment(button.dataset.attachmentId);
 });
 $('#share-event').addEventListener('click', (event) => {
   event.stopPropagation();

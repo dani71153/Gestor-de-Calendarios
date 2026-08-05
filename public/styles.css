@@ -1644,6 +1644,16 @@ td small {
   white-space: nowrap;
 }
 
+/* Distingue lo que todavía no está guardado en el servidor. */
+.attachment-item.is-pending {
+  border-style: dashed;
+  opacity: .85;
+}
+
+.attachment-item.is-pending img {
+  filter: saturate(.75);
+}
+
 .attachment-delete {
   position: absolute;
   top: .3rem;
@@ -2280,8 +2290,14 @@ td small {
 .time-event {
   position: absolute;
   z-index: 2;
-  left: .28rem;
-  right: .28rem;
+  /* left y width los calcula timeCalendar() para repartir los solapamientos. */
+  left: 0;
+  width: 100%;
+  /* El margen sale del propio recuadro para no descuadrar el reparto en columnas. */
+  box-sizing: border-box;
+  margin-left: .28rem;
+  margin-right: .28rem;
+  max-width: calc(100% - .56rem);
   min-height: 1.75rem;
   padding: .35rem .45rem .55rem;
   overflow: hidden;

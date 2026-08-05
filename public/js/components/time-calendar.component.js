@@ -13,6 +13,48 @@ function dayKey(date) {
   return localInputValue(date).slice(0, 10);
 }
 
+// Reparte en columnas los eventos que se solapan. Sin esto, dos eventos a la
+// misma hora se dibujan en la misma posición y el segundo tapa al primero, que
+// es lo que hacía parecer que el evento anterior se había perdido.
+function assignColumns(events) {
+  const ordered = [...events].sort((first, second) => (
+    new Date(first.startDatetime) - new Date(second.startDatetime)
+    || new Date(second.endDatetime) - new Date(first.endDatetime)
+  ));
+
+  const layout = new Map();
+  let group = [];
+  let groupEnd = 0;
+
+  // Todos los eventos de un grupo comparten el ancho, para que las columnas
+  // queden alineadas entre sí.
+  const closeGroup = () => {
+    const total = group.reduce((max, item) => Math.max(max, layout.get(item.id).column + 1), 1);
+    group.forEach((item) => { layout.get(item.id).columns = total; });
+    group = [];
+    groupEnd = 0;
+  };
+
+  ordered.forEach((event) => {
+    const start = new Date(event.startDatetime).getTime();
+    const end = new Date(event.endDatetime).getTime();
+    if (group.length && start >= groupEnd) closeGroup();
+
+    const ocupadas = new Set(group
+      .filter((item) => new Date(item.endDatetime).getTime() > start)
+      .map((item) => layout.get(item.id).column));
+    let column = 0;
+    while (ocupadas.has(column)) column += 1;
+
+    layout.set(event.id, { column, columns: 1 });
+    group.push(event);
+    groupEnd = Math.max(groupEnd, end);
+  });
+
+  if (group.length) closeGroup();
+  return layout;
+}
+
 export function timeCalendar({ currentDate, mode, events, calendarId = 0, settings }) {
   const startHour = Number(settings.workdayStartHour) || 8;
   const endHour = Number(settings.workdayEndHour) || 18;
@@ -51,6 +93,7 @@ export function timeCalendar({ currentDate, mode, events, calendarId = 0, settin
     const dayEvents = filtered.filter((event) => (
       new Date(event.startDatetime) < dayEnd && new Date(event.endDatetime) > dayStart
     ));
+    const layout = assignColumns(dayEvents);
     return `
       <div class="time-day-column ${dayKey(day) === today ? 'today' : ''}"
         data-time-day="${dayKey(day)}" data-start-hour="${startHour}"
@@ -63,10 +106,12 @@ export function timeCalendar({ currentDate, mode, events, calendarId = 0, settin
           const visibleEnd = rawEnd > dayEnd ? dayEnd : rawEnd;
           const top = ((visibleStart - dayStart) / 3600000) * PIXELS_PER_HOUR;
           const eventHeight = Math.max(28, ((visibleEnd - visibleStart) / 3600000) * PIXELS_PER_HOUR);
+          const { column, columns } = layout.get(event.id) || { column: 0, columns: 1 };
+          const width = 100 / columns;
           return `
             <button class="time-event" type="button" data-event-id="${event.id}"
               draggable="${Boolean(event.canEdit)}" data-can-edit="${Boolean(event.canEdit)}"
-              style="top:${top}px;height:${eventHeight}px;--event-color:${event.calendarColor}">
+              style="top:${top}px;height:${eventHeight}px;left:${column * width}%;width:${width}%;--event-color:${event.calendarColor}">
               <strong>${escapeHtml(event.title)}</strong>
               <span>${formatDate(rawStart, { hour: '2-digit', minute: '2-digit' })}–${formatDate(rawEnd, { hour: '2-digit', minute: '2-digit' })}</span>
               ${event.resourceName ? `<small>${escapeHtml(event.resourceName)}</small>` : ''}

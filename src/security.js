@@ -31,7 +31,9 @@ function securityHeaders(req, res, next) {
     "font-src 'self'",
     "form-action 'self'",
     "frame-ancestors 'none'",
-    "img-src 'self' data:",
+    // blob: habilita la vista previa local de un archivo elegido pero todavía no
+    // subido. Solo afecta a imágenes; scripts y conexiones siguen limitados a 'self'.
+    "img-src 'self' data: blob:",
     "object-src 'none'",
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
