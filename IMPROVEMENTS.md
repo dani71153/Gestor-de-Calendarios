@@ -9,7 +9,7 @@ Las decisiones estructurales viven en [`docs/adr/`](docs/adr/); esto es otra cos
 | # | Mejora | Estado |
 | --- | --- | --- |
 | 1 | Pegar imágenes con `Ctrl+V` | **Hecho** |
-| 2 | Arrastrar archivos al evento | Pendiente |
+| 2 | Arrastrar archivos al evento | **Hecho** |
 | 3 | Deshacer la cancelación | Pendiente |
 | 4 | Conservar el borrador del formulario | Pendiente |
 | 5 | Duplicar evento | Pendiente |
@@ -33,13 +33,17 @@ El manejador vive en `document` y no en el modal: cuando el foco está en un pun
 
 Sin título escrito todavía, el nombre empieza por `pegado-`.
 
-## 2. Arrastrar archivos al evento
+## 2. Arrastrar archivos al evento — hecho
 
-**Problema.** Cuando el flyer ya está descargado, sigue habiendo que pasar por el diálogo de archivos.
+**Problema.** Cuando el flyer ya estaba descargado, había que pasar igualmente por el diálogo de archivos.
 
-**Qué haría falta.** `dragover` y `drop` sobre el modal, con un realce visual mientras se arrastra encima.
+**Cómo quedó.** Arrastrar uno o varios archivos sobre el evento los adjunta. Mientras se arrastra encima, el panel se realza con un borde discontinuo. Conservan su nombre original —que es información útil, a diferencia del `image.png` del portapapeles— y solo se desambigua con un sufijo cuando ya existe otro igual en el mismo evento.
 
-**Cuidado.** El calendario ya usa `dragstart`, `dragover` y `drop` para **reprogramar eventos arrastrándolos**. Son manejadores distintos sobre elementos distintos, pero conviene no mezclarlos ni asumir que el existente sirve.
+**Cómo convive con el arrastre del calendario.** El calendario usa `dragstart`, `dragover` y `drop` para reprogramar eventos, sobre `.time-event` y `.time-day-column`. Los manejadores nuevos comprueban que el arrastre traiga **archivos** (`dataTransfer.types` incluye `Files`), lo que separa ambos casos sin depender de qué elemento escuche. Verificado que reprogramar arrastrando sigue funcionando.
+
+**Detalle que evita un disgusto.** Soltar un archivo fuera del modal hacía que el navegador lo abriera, perdiendo todo lo escrito. Un guard en `document` ignora esos soltados, y por la misma comprobación de `Files` no toca los arrastres internos del calendario.
+
+**Trampa del realce.** `dragleave` salta también al pasar sobre los elementos hijos, así que quitar el realce en ese evento lo haría parpadear. Se cuenta la profundidad de entradas y salidas.
 
 ## 3. Deshacer la cancelación
 

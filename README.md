@@ -473,6 +473,8 @@ Si cierras el evento con datos sin guardar —pulsando fuera, con `Escape` o en 
 
 Con el evento abierto, **`Ctrl+V` adjunta lo que haya en el portapapeles**: capturas de pantalla, un flyer copiado desde el navegador o varias imágenes de una vez. Se renombran con el título del evento y la fecha, porque el portapapeles siempre entrega el mismo nombre genérico. Pegar texto en la descripción sigue funcionando con normalidad.
 
+También puedes **arrastrar archivos sobre el evento**. Estos conservan su nombre original; solo se les añade un sufijo si ya hay otro igual adjunto.
+
 Los adjuntos se ven en modo consulta; añadirlos o eliminarlos requiere permiso de edición sobre el evento. Al eliminar un evento sus archivos desaparecen con él.
 
 ### Se guardan dentro de la base de datos

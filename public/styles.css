@@ -1601,6 +1601,18 @@ td small {
   align-items: center;
 }
 
+/* Realce mientras se arrastra un archivo sobre el evento. El outline no ocupa
+   espacio, así que el contenido no se mueve al aparecer. */
+.event-drawer.is-dropping {
+  outline: 2px dashed var(--accent, #4F6BED);
+  outline-offset: -6px;
+}
+
+.event-drawer.is-dropping .attachments-field {
+  background: color-mix(in srgb, var(--accent, #4F6BED) 8%, transparent);
+  border-radius: var(--radius-sm);
+}
+
 .attachments-field {
   display: flex;
   flex-direction: column;

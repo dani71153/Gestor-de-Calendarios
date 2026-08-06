@@ -1570,37 +1570,47 @@ function nombreParaPegado(file) {
     .toLowerCase()
     .slice(0, 40);
   // Con resolución de minutos, dos pegados seguidos compartían nombre. Los
-  // segundos lo hacen improbable, y la comprobación de abajo lo hace imposible.
+  // segundos lo hacen improbable, y nombreDisponible() lo hace imposible.
   const ahora = new Date();
   const dd = (valor) => String(valor).padStart(2, '0');
   const sello = `${ahora.getFullYear()}-${dd(ahora.getMonth() + 1)}-${dd(ahora.getDate())}`
     + `-${dd(ahora.getHours())}${dd(ahora.getMinutes())}${dd(ahora.getSeconds())}`;
 
+  return nombreDisponible(`${base || 'pegado'}-${sello}.${extension}`);
+}
+
+// Los archivos arrastrados conservan su nombre real, que es información útil;
+// solo se desambigua cuando ya hay otro igual en el mismo evento.
+function nombreDisponible(nombre) {
   const usados = new Set([
     ...state.attachments.map((item) => item.filename),
     ...state.pendingAttachments.map((item) => item.name)
   ]);
-  const raiz = `${base || 'pegado'}-${sello}`;
-  let nombre = `${raiz}.${extension}`;
+  if (!usados.has(nombre)) return nombre;
+
+  const punto = nombre.lastIndexOf('.');
+  const raiz = punto > 0 ? nombre.slice(0, punto) : nombre;
+  const extension = punto > 0 ? nombre.slice(punto) : '';
   let repeticion = 2;
-  while (usados.has(nombre)) {
-    nombre = `${raiz}-${repeticion}.${extension}`;
-    repeticion += 1;
-  }
-  return nombre;
+  while (usados.has(`${raiz}-${repeticion}${extension}`)) repeticion += 1;
+  return `${raiz}-${repeticion}${extension}`;
 }
 
 // Secuencial a propósito: uploadAttachment desactiva y restaura el botón, y en
 // paralelo dos subidas se pisarían ese estado.
-async function pegarArchivos(archivos) {
+async function adjuntarVarios(archivos, { renombrar = false } = {}) {
   const enEspera = !$('#event-form').elements.id.value;
+  let añadidos = 0;
   for (const file of archivos) {
-    await uploadAttachment(new File([file], nombreParaPegado(file), { type: file.type }));
+    const nombre = renombrar ? nombreParaPegado(file) : nombreDisponible(file.name);
+    // Se reconstruye siempre para poder fijar el nombre definitivo.
+    await uploadAttachment(new File([file], nombre, { type: file.type }));
+    añadidos += 1;
   }
-  if (enEspera && archivos.length) {
-    toast(archivos.length === 1
-      ? 'Imagen pegada, se adjuntará al guardar'
-      : `${archivos.length} imágenes pegadas, se adjuntarán al guardar`);
+  if (enEspera && añadidos) {
+    toast(añadidos === 1
+      ? 'Archivo añadido, se adjuntará al guardar'
+      : `${añadidos} archivos añadidos, se adjuntarán al guardar`);
   }
 }
 
@@ -2008,7 +2018,68 @@ document.addEventListener('paste', (event) => {
   // Sin archivos es un pegado de texto normal: no hay que estorbarlo.
   if (!archivos.length) return;
   event.preventDefault();
-  pegarArchivos(archivos).catch((error) => toast(error.message));
+  adjuntarVarios(archivos, { renombrar: true }).catch((error) => toast(error.message));
+});
+
+// --- Arrastrar archivos al evento --------------------------------------------
+
+// El calendario también usa eventos de arrastre, pero para reprogramar eventos
+// con arrastres internos. Comprobar que el arrastre trae archivos separa ambos
+// casos sin depender de qué elemento los escuche.
+function arrastraArchivos(event) {
+  return [...(event.dataTransfer?.types || [])].includes('Files');
+}
+
+function modalAceptaArchivos() {
+  return !$('#event-modal').hidden && $('#event-form').dataset.readonly !== 'true';
+}
+
+// dragleave salta también al pasar sobre los hijos, así que se cuenta la
+// profundidad en vez de fiarse de un único evento de salida.
+let profundidadArrastre = 0;
+
+function marcarZonaDeSoltado(activa) {
+  profundidadArrastre = activa ? profundidadArrastre : 0;
+  $('#event-modal').querySelector('.event-drawer').classList.toggle('is-dropping', activa);
+}
+
+$('#event-modal').addEventListener('dragenter', (event) => {
+  if (!arrastraArchivos(event) || !modalAceptaArchivos()) return;
+  event.preventDefault();
+  profundidadArrastre += 1;
+  marcarZonaDeSoltado(true);
+});
+
+$('#event-modal').addEventListener('dragover', (event) => {
+  if (!arrastraArchivos(event) || !modalAceptaArchivos()) return;
+  // Sin preventDefault el navegador rechaza el soltado.
+  event.preventDefault();
+  event.dataTransfer.dropEffect = 'copy';
+});
+
+$('#event-modal').addEventListener('dragleave', (event) => {
+  if (!arrastraArchivos(event)) return;
+  profundidadArrastre -= 1;
+  if (profundidadArrastre <= 0) marcarZonaDeSoltado(false);
+});
+
+$('#event-modal').addEventListener('drop', (event) => {
+  if (!arrastraArchivos(event) || !modalAceptaArchivos()) return;
+  event.preventDefault();
+  marcarZonaDeSoltado(false);
+  const archivos = [...(event.dataTransfer?.files || [])];
+  if (archivos.length) adjuntarVarios(archivos).catch((error) => toast(error.message));
+});
+
+// Soltar un archivo fuera del modal haría que el navegador lo abriera y se
+// perdiera lo escrito. Se ignora, sin tocar los arrastres internos del calendario.
+['dragover', 'drop'].forEach((tipo) => {
+  document.addEventListener(tipo, (event) => {
+    if (!arrastraArchivos(event)) return;
+    if ($('#event-modal').contains(event.target)) return;
+    event.preventDefault();
+    if (tipo === 'drop') marcarZonaDeSoltado(false);
+  });
 });
 
 $('#add-attachment').addEventListener('click', () => $('#attachment-input').click());
