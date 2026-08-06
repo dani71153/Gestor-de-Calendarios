@@ -491,6 +491,16 @@ Subir archivos obliga a `multipart/form-data`, mientras que el resto de la API e
 
 El formulario se interpreta con `Response.formData()` de la plataforma, así que **no se añadió ninguna dependencia**: el proyecto sigue dependiendo solo de `express`.
 
+## Exportar e imprimir
+
+Son dos salidas con propósitos distintos:
+
+**Exportar**, en la vista **Eventos**. Descarga un CSV de doce columnas con los filtros que tengas aplicados. Lleva BOM UTF-8, así que Excel abre los acentos correctamente, y todos los campos van entrecomillados: comas, comillas y saltos de línea del contenido no lo rompen. Si Excel te muestra todo en una sola columna, es la configuración regional del separador de listas: **Datos → Texto en columnas**, separado por comas.
+
+Vale además como salida de emergencia: si algún día hay que dejar la aplicación, los datos se llevan consigo.
+
+**Imprimir**, en la vista **Calendario**. Manda a papel la rejilla que estés viendo —mes, semana o día— en horizontal, sin navegación ni controles y conservando los colores de cada calendario. En la vista mensual las celdas crecen para que se lea el texto de las entradas.
+
 ## Pautas por calendario
 
 La descripción que escribas al crear un calendario está disponible al registrar un evento, tras un botón de ayuda **⊙** junto al selector de calendario.

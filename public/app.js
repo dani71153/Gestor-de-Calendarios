@@ -1,6 +1,8 @@
 import { ApiClient } from './js/services/api.service.js';
 import {
-  VIEW_TITLES
+  VIEW_TITLES,
+  STATUS_LABELS,
+  PRIORITY_LABELS
 } from './js/config/ui.config.js';
 import {
   renderConnectionStatus,
@@ -959,6 +961,60 @@ function renderEventsTable() {
   $('#empty-events').hidden = state.listEvents.length > 0;
   $('#event-results').textContent = `${state.listEvents.length} ${state.listEvents.length === 1 ? 'resultado' : 'resultados'}`;
   renderFilterContext();
+}
+
+// --- Exportar e imprimir -----------------------------------------------------
+
+// Se exporta lo que hay en pantalla, no una consulta aparte: así lo descargado
+// coincide siempre con los filtros aplicados, sin poder divergir.
+function campoCsv(valor) {
+  const texto = valor === null || valor === undefined ? '' : String(valor);
+  // Se entrecomilla todo: evita pensar en qué campo puede traer comas o saltos.
+  return `"${texto.replace(/"/g, '""')}"`;
+}
+
+function eventosComoCsv(eventos) {
+  const cabeceras = [
+    'Fecha', 'Hora inicio', 'Hora fin', 'Evento', 'Tipo', 'Calendario',
+    'Responsable', 'Estado', 'Prioridad', 'Ubicación', 'Recurso', 'Descripción'
+  ];
+  const fecha = (iso, opciones) => formatDate(iso, opciones);
+  const filas = eventos.map((evento) => [
+    fecha(evento.startDatetime, { year: 'numeric', month: '2-digit', day: '2-digit' }),
+    fecha(evento.startDatetime, { hour: '2-digit', minute: '2-digit' }),
+    fecha(evento.endDatetime, { hour: '2-digit', minute: '2-digit' }),
+    evento.title,
+    evento.eventType,
+    evento.calendarName,
+    evento.responsibleName || 'Sin asignar',
+    STATUS_LABELS[evento.status] || evento.status,
+    PRIORITY_LABELS[evento.priority] || evento.priority,
+    evento.location || '',
+    evento.resourceName || '',
+    evento.description || ''
+  ]);
+  // El BOM es lo que hace que Excel lea los acentos correctamente.
+  return '﻿' + [cabeceras, ...filas].map((fila) => fila.map(campoCsv).join(',')).join('\r\n');
+}
+
+function exportarEventos() {
+  if (!state.listEvents.length) return toast('No hay eventos que exportar con estos filtros');
+
+  const contenido = eventosComoCsv(state.listEvents);
+  const url = URL.createObjectURL(new Blob([contenido], { type: 'text/csv;charset=utf-8' }));
+  const sello = localInputValue(new Date()).slice(0, 10);
+  const enlace = document.createElement('a');
+  enlace.href = url;
+  enlace.download = `eventos-${sello}.csv`;
+  enlace.click();
+  URL.revokeObjectURL(url);
+  toast(`${state.listEvents.length} evento(s) exportados`);
+}
+
+// Se imprime el calendario, no el listado: en papel lo que sirve es la rejilla
+// del mes o de la semana, que es como se lee una agenda.
+function imprimirCalendario() {
+  window.print();
 }
 
 function renderFilterContext() {
@@ -2081,6 +2137,9 @@ $('#event-modal').addEventListener('drop', (event) => {
     if (tipo === 'drop') marcarZonaDeSoltado(false);
   });
 });
+
+$('#export-events').addEventListener('click', exportarEventos);
+$('#print-calendar').addEventListener('click', imprimirCalendario);
 
 $('#add-attachment').addEventListener('click', () => $('#attachment-input').click());
 $('#attachment-input').addEventListener('change', (event) => {

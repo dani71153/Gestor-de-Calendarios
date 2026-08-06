@@ -3185,3 +3185,142 @@ td small {
     transition-duration: .01ms !important;
   }
 }
+
+/* --- Impresión --------------------------------------------------------------
+   Se imprime el calendario: en papel lo que sirve es la rejilla del mes o de la
+   semana, no el listado. El listado se lleva con el botón Exportar. */
+@media print {
+  @page {
+    margin: 1cm;
+    size: landscape;
+  }
+
+  body {
+    background: #fff;
+    color: #000;
+  }
+
+  /* Los colores de calendario y estado distinguen las entradas de un vistazo:
+     sin esto el navegador los elimina y todo sale gris. */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .skip-link,
+  .sidebar,
+  .topbar,
+  .calendar-toolbar-actions,
+  .month-navigation .icon-button,
+  #today-button,
+  .modal-backdrop,
+  .toast,
+  .new-event {
+    display: none !important;
+  }
+
+  /* Las vistas ocultas siguen ocultas: sin esta regla el display de abajo anula
+     el atributo hidden y se imprimirían todas las secciones seguidas. */
+  [hidden] {
+    display: none !important;
+  }
+
+  /* min-height:100dvh en .app-shell estiraba el documento hasta el alto de la
+     ventana, y ese hueco sobrante generaba una segunda página en blanco. */
+  html,
+  body,
+  .app-shell,
+  .workspace,
+  main,
+  .view:not([hidden]) {
+    display: block !important;
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .panel,
+  .toolbar {
+    /* La barra reserva 5rem en pantalla; en papel solo lleva el título. */
+    min-height: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 0 .4cm !important;
+  }
+
+  /* Encabezado: queda el mes o la semana que se está imprimiendo. */
+  #month-label {
+    font-size: 16pt;
+    margin: 0;
+  }
+
+  /* Una hoja A4 apaisada con 1cm de margen deja unos 718px útiles, y la rejilla
+     mide entre 700 y 785px más el encabezado: sin reducirla, cada vista se
+     partía en dos páginas y la primera salía casi vacía. zoom escala también
+     las alturas en línea sobre las que se posicionan las entradas. */
+  .calendar-wrap {
+    zoom: .78;
+    overflow: visible !important;
+  }
+
+  .weekdays {
+    font-size: 8pt;
+  }
+
+  .calendar-grid {
+    break-inside: avoid;
+  }
+
+  .calendar-day {
+    min-height: 2.6cm !important;
+    border-color: #bbb !important;
+  }
+
+  /* En pantalla las entradas del mes se reducen a una barra de color cuando hay
+     poco sitio; en papel importa el texto. */
+  .calendar-event {
+    height: auto !important;
+    padding: .04cm .08cm !important;
+    font-size: 7pt !important;
+    white-space: normal !important;
+    overflow: visible !important;
+  }
+
+  /* --- Vistas de día y semana ---
+     El cuerpo vive dentro de un contenedor con max-height y scroll propio, que
+     en papel recortaría las primeras y las últimas horas de la jornada. */
+  .calendar-wrap,
+  .time-calendar,
+  .time-calendar-scroll {
+    max-height: none !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* El cuerpo lleva una altura calculada en línea —una hora son 72px— sobre la
+     que se posicionan las entradas. Forzar height:auto la colapsaba al
+     min-height y recortaba las últimas horas de la jornada. */
+  .time-calendar-body {
+    max-height: none !important;
+    overflow: visible !important;
+    break-inside: avoid;
+  }
+
+  .time-event {
+    font-size: 7pt !important;
+    padding: .04cm .08cm !important;
+  }
+
+  .time-event .event-resize-handle {
+    display: none !important;
+  }
+
+  a[href]::after {
+    content: '';
+  }
+}

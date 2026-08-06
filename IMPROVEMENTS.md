@@ -14,7 +14,7 @@ Las decisiones estructurales viven en [`docs/adr/`](docs/adr/); esto es otra cos
 | 4 | Conservar el borrador del formulario | Pendiente |
 | 5 | Duplicar evento | Pendiente |
 | 6 | Atajos de teclado | Pendiente |
-| 7 | Imprimir o exportar la agenda | Pendiente |
+| 7 | Imprimir o exportar la agenda | **Hecho** |
 | 8 | Acciones en lote | Pendiente |
 | 9 | Pautas visibles del calendario | **Hecho** |
 | 10 | Avisar antes de descartar cambios | **Hecho** |
@@ -79,13 +79,30 @@ Sin título escrito todavía, el nombre empieza por `pegado-`.
 
 **Cuidado.** Los atajos no deben dispararse mientras se escribe en un campo. Hace falta comprobar `event.target` antes de actuar.
 
-## 7. Imprimir o exportar la agenda
+## 7. Imprimir o exportar la agenda — hecho
 
-**Problema.** No hay forma de sacar los datos de la aplicación. Ni imprimir el día ni mandar la lista por correo.
+**Problema.** No había forma de sacar los datos: ni llevarse el calendario en papel ni mandar la lista por correo.
 
-**Qué haría falta.** Una hoja de estilos `@media print` que oculte la navegación y los controles, y una exportación a CSV del listado con los filtros aplicados.
+**Cómo quedó.** Dos salidas con propósitos distintos:
 
-**Nota.** El CSV es también una salida de emergencia: si algún día hay que abandonar la aplicación, los datos se llevan consigo.
+- **Exportar**, en la vista *Eventos*: descarga un CSV del listado con los filtros aplicados. Es la salida de datos.
+- **Imprimir**, en la vista *Calendario*: manda a papel la rejilla que estés viendo —mes, semana o día—. Es la salida para leer.
+
+En papel lo útil es la rejilla, no una tabla de filas: por eso imprimir vive en Calendario y no en Eventos.
+
+**El CSV.** Doce columnas, todos los campos entrecomillados —las comas, comillas y saltos de línea del contenido no lo rompen, verificado releyéndolo con un parser real— y BOM UTF-8, sin el cual Excel destroza los acentos. Se genera desde lo que hay en pantalla, así que no puede divergir de los filtros.
+
+**La impresión.** Apaisada, sin navegación ni controles, conservando los colores de calendario con `print-color-adjust: exact`. En la vista mensual las celdas crecen para que quepa el texto de las entradas, que en pantalla se reducen a una barra de color.
+
+**Cinco fallos, y ninguno se veía sin renderizar:**
+
+1. `.view { display: block !important }` anulaba el atributo `hidden` e imprimía **las siete vistas seguidas**. Acotado a `.view:not([hidden])`.
+2. Las vistas de día y semana salían recortadas por arriba y por abajo: el cuerpo vive dentro de `.time-calendar-scroll`, con `max-height` y scroll propio. Mis primeros selectores —`.time-grid`, `.time-day-columns`— no existían en la hoja de estilos; eran nombres inventados.
+3. Al liberar ese contenedor puse también `height: auto` sobre `.time-calendar-body`, que **anulaba la altura calculada en línea** —una hora son 72px— y la colapsaba al `min-height`, perdiendo las últimas horas. La comprobación numérica decía «no recortado» porque comparaba dos medidas que estaban mal las dos.
+4. Día y semana ocupaban **dos hojas**, con la primera casi vacía: la rejilla mide hasta 785px y una A4 apaisada con 1cm de margen deja unos 718px útiles, así que `break-inside: avoid` la empujaba entera a la segunda página. Se resuelve con `zoom: .78` sobre `.calendar-wrap`, que escala también las alturas en línea.
+5. `min-height: 100dvh` en `.app-shell` estiraba el documento hasta el alto de la ventana, y ese hueco sobrante generaba una página en blanco. Y el enlace «Saltar al contenido» se imprimía como un botón negro.
+
+Verificado generando PDF real y contando páginas: **una hoja por vista** en ventanas de 1024×700, 1400×950 y 1920×1080.
 
 ## 8. Acciones en lote
 
