@@ -469,6 +469,10 @@ Cada evento admite archivos: el flyer que llegó por Instagram, una confirmació
 | Archivos por evento | 20 |
 | Formatos | PNG, JPEG, GIF, WEBP y PDF |
 
+Si cierras el evento con datos sin guardar —pulsando fuera, con `Escape` o en *Cerrar*— la aplicación pide confirmación antes de descartarlos, y avisa aparte si hay imágenes pegadas pendientes de subir.
+
+Con el evento abierto, **`Ctrl+V` adjunta lo que haya en el portapapeles**: capturas de pantalla, un flyer copiado desde el navegador o varias imágenes de una vez. Se renombran con el título del evento y la fecha, porque el portapapeles siempre entrega el mismo nombre genérico. Pegar texto en la descripción sigue funcionando con normalidad.
+
 Los adjuntos se ven en modo consulta; añadirlos o eliminarlos requiere permiso de edición sobre el evento. Al eliminar un evento sus archivos desaparecen con él.
 
 ### Se guardan dentro de la base de datos

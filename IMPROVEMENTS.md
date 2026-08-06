@@ -8,7 +8,7 @@ Las decisiones estructurales viven en [`docs/adr/`](docs/adr/); esto es otra cos
 
 | # | Mejora | Estado |
 | --- | --- | --- |
-| 1 | Pegar imágenes con `Ctrl+V` | Pendiente |
+| 1 | Pegar imágenes con `Ctrl+V` | **Hecho** |
 | 2 | Arrastrar archivos al evento | Pendiente |
 | 3 | Deshacer la cancelación | Pendiente |
 | 4 | Conservar el borrador del formulario | Pendiente |
@@ -17,18 +17,21 @@ Las decisiones estructurales viven en [`docs/adr/`](docs/adr/); esto es otra cos
 | 7 | Imprimir o exportar la agenda | Pendiente |
 | 8 | Acciones en lote | Pendiente |
 | 9 | Pautas visibles del calendario | **Hecho** |
+| 10 | Avisar antes de descartar cambios | **Hecho** |
 
 ---
 
-## 1. Pegar imágenes con `Ctrl+V`
+## 1. Pegar imágenes con `Ctrl+V` — hecho
 
-**Problema.** Adjuntar un flyer que llega por Instagram exige hoy cuatro pasos: captura, guardar el archivo, pulsar *Añadir archivo*, buscarlo en el diálogo. Es el motivo por el que se pidieron los adjuntos, y sigue siendo incómodo.
+**Problema.** Adjuntar un flyer que llega por Instagram exigía cuatro pasos: captura, guardar el archivo, pulsar *Añadir archivo*, buscarlo en el diálogo.
 
-**Qué haría falta.** Un manejador de `paste` en el modal de evento que lea `event.clipboardData.files` y reutilice `uploadAttachment()`. Con el evento ya guardado sube directamente; con uno nuevo se queda en espera, igual que ahora.
+**Cómo quedó.** Con el evento abierto, `Ctrl+V` adjunta lo que haya en el portapapeles. Funciona igual en un evento nuevo —queda en espera hasta guardar— que en uno ya guardado, y admite varias imágenes de una vez.
 
-**Lo que abarata.** Todo el camino de subida, validación y vista previa ya existe. Es conectar un evento más a una función que ya funciona.
+El manejador vive en `document` y no en el modal: cuando el foco está en un punto neutro, el evento `paste` nace en `body` y no llegaría a burbujear hasta el modal. Solo actúa si el portapapeles trae archivos, así que pegar texto en la descripción sigue funcionando con normalidad, y no hace nada con el modal cerrado o en modo consulta.
 
-**Trampa conocida.** Al pegar, el navegador entrega un `File` con nombre genérico (`image.png`). Conviene renombrarlo con la fecha o el título del evento, o todos los adjuntos se llamarán igual.
+**La trampa, resuelta del todo.** El portapapeles entrega siempre `image.png`. Se renombra con el título del evento y la fecha: `promocion-semana-santa-2026-08-06-094352.png`. La primera versión usaba resolución de minutos y **dos pegados seguidos compartían nombre**; ahora lleva segundos y, además, comprueba los nombres ya usados y añade un sufijo. Verificado con tres pegados en el mismo segundo.
+
+Sin título escrito todavía, el nombre empieza por `pegado-`.
 
 ## 2. Arrastrar archivos al evento
 
@@ -55,6 +58,8 @@ Las decisiones estructurales viven en [`docs/adr/`](docs/adr/); esto es otra cos
 **Qué haría falta.** Guardar los valores del formulario en `localStorage` mientras se escribe y ofrecer recuperarlos al reabrir un evento nuevo.
 
 **A decidir.** Los archivos en espera no se pueden serializar a `localStorage`. O se avisa de que los adjuntos no se conservan, o se descarta el borrador cuando los hay.
+
+**Relación con la 10.** Avisar antes de descartar ya evita la pérdida accidental. Esta seguiría teniendo sentido para el cierre del navegador o un corte de luz, pero deja de ser urgente.
 
 ## 5. Duplicar evento
 
@@ -95,6 +100,18 @@ Las decisiones estructurales viven en [`docs/adr/`](docs/adr/); esto es otra cos
 La primera versión las mostraba de forma permanente e incluía también la descripción del tipo de evento. Se sentía recargado, y con razón: las descripciones de los tipos son relleno del catálogo que repite la etiqueta —«Entrega» → «Entrega de documentos»—, así que la mitad del bloque no decía nada. Se quitaron.
 
 Fue solo frontend: `/api/calendars` ya devolvía `description`; nadie la pintaba.
+
+## 10. Avisar antes de descartar cambios — hecho
+
+**Problema.** El modal de evento se cerraba sin más al pulsar fuera, con `Escape` o con *Cerrar*, descartando en silencio todo lo escrito. Bastaba un clic mal puesto para perder un evento a medio redactar.
+
+**Cómo quedó.** Al cerrar con cambios sin guardar pide confirmación. Si hay imágenes pegadas todavía sin subir, el aviso lo menciona expresamente, porque esas se pierden aunque el resto pudiera recuperarse.
+
+**Cómo se detecta.** Se toma una foto del formulario serializado al abrirlo y se compara al cerrar. Comparar contra «campos vacíos» no habría servido: en un evento nuevo las fechas y el recordatorio ya vienen puestos, y en uno existente lo sucio es cualquier desvío de lo cargado. La misma comparación cubre los dos casos.
+
+**Qué no pregunta.** El modo consulta —nada que perder—, y los cierres automáticos tras guardar, cancelar o sincronizar, que siguen usando `closeEventModal()` mientras los cierres iniciados por la persona pasan por `requestCloseEventModal()`.
+
+Verificados los siete caminos: abrir y cerrar sin tocar nada, cerrar con texto escrito cancelando y aceptando, cerrar con una imagen pegada, evento existente sin modificar y modificado, y guardar sin que pregunte nada.
 
 ---
 

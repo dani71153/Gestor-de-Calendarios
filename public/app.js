@@ -47,6 +47,8 @@ const state = {
   // Archivos elegidos antes de que el evento exista, a la espera de su id.
   pendingAttachments: [],
   pendingUrls: [],
+  // Foto del formulario al abrirlo, para detectar cambios sin guardar.
+  eventFormSnapshot: '',
   integration: null,
   adminUsers: [],
   adminCalendars: [],
@@ -1223,6 +1225,7 @@ function openEventModal(event = null, date = null) {
     prepareConflictPreview(form);
   }
   renderCalendarGuidance();
+  state.eventFormSnapshot = serializarEventForm();
   const formScroller = form.querySelector('.event-form-content');
   formScroller.scrollTop = 0;
   setOverlayOpen($('#event-modal'), true);
@@ -1231,6 +1234,36 @@ function openEventModal(event = null, date = null) {
     formScroller.scrollTop = 0;
     (readOnly ? $('#close-modal') : form.elements.title).focus({ preventScroll: true });
   });
+}
+
+// Se compara contra una foto tomada al abrir, no contra «campos vacíos»: así
+// vale igual para un evento nuevo —donde fechas y recordatorio vienen puestos—
+// que para uno existente, donde lo sucio es cualquier desvío de lo cargado.
+function serializarEventForm() {
+  const form = $('#event-form');
+  const valores = [...new FormData(form).entries()].map(([nombre, valor]) => `${nombre}=${valor}`);
+  // Un checkbox desmarcado no aparece en FormData; se añade siempre para que la
+  // comparación no dependa de su estado.
+  valores.push(`syncWithGoogle=${form.elements.syncWithGoogle.checked}`);
+  return valores.sort().join('|');
+}
+
+function eventFormDirty() {
+  if ($('#event-form').dataset.readonly === 'true') return false;
+  if (state.pendingAttachments.length) return true;
+  return serializarEventForm() !== state.eventFormSnapshot;
+}
+
+// Cierre pedido por la persona. Los cierres automáticos —tras guardar, cancelar
+// o sincronizar— siguen llamando a closeEventModal() y no preguntan nada.
+function requestCloseEventModal() {
+  if (eventFormDirty()) {
+    const aviso = state.pendingAttachments.length
+      ? 'Hay datos sin guardar y archivos sin subir. Se perderán al cerrar. ¿Cerrar de todos modos?'
+      : 'Se perderán los datos que escribiste y no guardaste. ¿Cerrar de todos modos?';
+    if (!confirm(aviso)) return;
+  }
+  closeEventModal();
 }
 
 function closeEventModal() {
@@ -1512,6 +1545,62 @@ async function loadAttachments(eventId) {
     renderAttachments(data.attachments);
   } catch (error) {
     $('#attachment-list').innerHTML = `<p class="muted">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+const EXTENSION_POR_TIPO = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'application/pdf': 'pdf'
+};
+
+// El portapapeles entrega siempre el mismo nombre genérico —«image.png»—, así que
+// sin renombrar todos los adjuntos acabarían llamándose igual. Se usa el título
+// del evento cuando ya está escrito, y la fecha para distinguir varios pegados.
+function nombreParaPegado(file) {
+  const extension = EXTENSION_POR_TIPO[file.type] || 'png';
+  const titulo = $('#event-form').elements.title.value.trim();
+  const base = titulo
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase()
+    .slice(0, 40);
+  // Con resolución de minutos, dos pegados seguidos compartían nombre. Los
+  // segundos lo hacen improbable, y la comprobación de abajo lo hace imposible.
+  const ahora = new Date();
+  const dd = (valor) => String(valor).padStart(2, '0');
+  const sello = `${ahora.getFullYear()}-${dd(ahora.getMonth() + 1)}-${dd(ahora.getDate())}`
+    + `-${dd(ahora.getHours())}${dd(ahora.getMinutes())}${dd(ahora.getSeconds())}`;
+
+  const usados = new Set([
+    ...state.attachments.map((item) => item.filename),
+    ...state.pendingAttachments.map((item) => item.name)
+  ]);
+  const raiz = `${base || 'pegado'}-${sello}`;
+  let nombre = `${raiz}.${extension}`;
+  let repeticion = 2;
+  while (usados.has(nombre)) {
+    nombre = `${raiz}-${repeticion}.${extension}`;
+    repeticion += 1;
+  }
+  return nombre;
+}
+
+// Secuencial a propósito: uploadAttachment desactiva y restaura el botón, y en
+// paralelo dos subidas se pisarían ese estado.
+async function pegarArchivos(archivos) {
+  const enEspera = !$('#event-form').elements.id.value;
+  for (const file of archivos) {
+    await uploadAttachment(new File([file], nombreParaPegado(file), { type: file.type }));
+  }
+  if (enEspera && archivos.length) {
+    toast(archivos.length === 1
+      ? 'Imagen pegada, se adjuntará al guardar'
+      : `${archivos.length} imágenes pegadas, se adjuntarán al guardar`);
   }
 }
 
@@ -1905,11 +1994,23 @@ $$('.nav-item[data-view]').forEach((item) => item.addEventListener('click', () =
 $$('[data-go-view]').forEach((item) => item.addEventListener('click', () => showView(item.dataset.goView)));
 $$('.go-integrations').forEach((item) => item.addEventListener('click', () => showView('integrations')));
 $$('.new-event').forEach((item) => item.addEventListener('click', () => openEventModal()));
-$('#close-modal').addEventListener('click', closeEventModal);
-$('#cancel-modal').addEventListener('click', closeEventModal);
+$('#close-modal').addEventListener('click', requestCloseEventModal);
+$('#cancel-modal').addEventListener('click', requestCloseEventModal);
 $('#event-form').addEventListener('submit', saveEvent);
 $('#delete-event').addEventListener('click', cancelEvent);
 $('#sync-event').addEventListener('click', syncCurrentEvent);
+// Se escucha en document y no en el modal: si el foco está en un punto neutro,
+// el evento paste nace en body y no llegaría a burbujear hasta el modal.
+document.addEventListener('paste', (event) => {
+  if ($('#event-modal').hidden) return;
+  if ($('#event-form').dataset.readonly === 'true') return;
+  const archivos = [...(event.clipboardData?.files || [])];
+  // Sin archivos es un pegado de texto normal: no hay que estorbarlo.
+  if (!archivos.length) return;
+  event.preventDefault();
+  pegarArchivos(archivos).catch((error) => toast(error.message));
+});
+
 $('#add-attachment').addEventListener('click', () => $('#attachment-input').click());
 $('#attachment-input').addEventListener('change', (event) => {
   const [file] = event.target.files;
@@ -2160,7 +2261,7 @@ $('#calendar-grid').addEventListener('pointerdown', (event) => {
 });
 
 $('#event-modal').addEventListener('click', (event) => {
-  if (event.target === event.currentTarget) closeEventModal();
+  if (event.target === event.currentTarget) requestCloseEventModal();
 });
 
 $('#integration-config-form').addEventListener('submit', saveGoogleConfiguration);
@@ -2189,7 +2290,7 @@ document.addEventListener('keydown', (event) => {
   // El desplegable de compartir se cierra primero: Escape no debe descartar el
   // evento completo cuando solo se quería salir del menú.
   if (event.key === 'Escape' && !$('#share-menu').hidden) return toggleShareMenu(false);
-  if (event.key === 'Escape' && !$('#event-modal').hidden) closeEventModal();
+  if (event.key === 'Escape' && !$('#event-modal').hidden) requestCloseEventModal();
   if (event.key === 'Escape' && !$('#integration-config-modal').hidden) closeGoogleConfiguration();
   if (event.key === 'Escape' && !$('#calendar-admin-modal').hidden) closeCalendarAdministration();
   if (event.key === 'Escape' && !$('#user-admin-modal').hidden) closeUserAdministration();
